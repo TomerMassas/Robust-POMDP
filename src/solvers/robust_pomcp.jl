@@ -10,11 +10,6 @@ Tunable parameters:
   ucb_mode: "nominal" (optimistic) or "robust" (pessimistic) exploration
 """
 
-include("../core/pomdp_types.jl")
-include("../core/tree.jl")
-include("../uncertainty/uncertainty_sets.jl")
-include("../uncertainty/projected_sets.jl")
-
 # --- Top-level planner ---
 
 """
