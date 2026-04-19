@@ -31,7 +31,8 @@ Keyword Args:
     exploration_constant: c in UCB formula
 
 Returns:
-    best_action: the action with highest Q_robust at root
+    (best_action, root): the chosen action and the root HistoryNode
+                         (root allows inspecting Q values, tree structure, etc.)
 """
 function robust_pomcp_plan(belief::Vector{Float64}, model::TabularPOMDP,
                            uncertainty::UncertaintySets, horizon::Int,
@@ -62,7 +63,7 @@ function robust_pomcp_plan(belief::Vector{Float64}, model::TabularPOMDP,
         end
     end
 
-    return best_action
+    return (best_action, root)
 end
 
 # --- Simulation ---
@@ -84,10 +85,13 @@ function simulate!(s::Int, node::HistoryNode, depth::Int, model::TabularPOMDP,
 
     add_particle!(node, s)
 
-    # Leaf node: expand and rollout
+    # Leaf node: expand and rollout. Save rollout return as V_rollout for this node.
     if is_leaf(node)
         expand!(node, model.n_actions)
-        return rollout(s, depth, model)
+        rollout_return = rollout(s, depth, model)
+        node.V_rollout = rollout_return
+        node.has_rollout = true
+        return rollout_return
     end
 
     # Select action
@@ -272,4 +276,21 @@ end
 """Sample a state from a belief vector (probability distribution over 1:n_states)."""
 function sample_from_belief(belief::Vector{Float64})
     return rand(Categorical(belief))
+end
+
+# --- Diagnostics ---
+
+"""Count the number of HistoryNodes and ActionNodes in a tree."""
+function tree_size(root::HistoryNode)
+    n_history = 1
+    n_action = 0
+    for (_, action_node) in root.children
+        n_action += 1
+        for (_, child) in action_node.children
+            nh, na = tree_size(child::HistoryNode)
+            n_history += nh
+            n_action += na
+        end
+    end
+    return (n_history, n_action)
 end

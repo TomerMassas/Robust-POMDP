@@ -60,10 +60,12 @@ mutable struct HistoryNode
     dirty::Bool
     V_robust::Float64       # cached max_a Q_robust(a), updated during robust backup
     V_nominal::Float64      # cached max_a Q_nominal(a), updated during simulation
+    V_rollout::Float64      # rollout return saved when this node is first expanded
+    has_rollout::Bool       # whether V_rollout has been set
 end
 
 function HistoryNode(depth::Int)
-    return HistoryNode(Int[], Set{Int}(), Dict{Int, ActionNode}(), 0, depth, true, 0.0, 0.0)
+    return HistoryNode(Int[], Set{Int}(), Dict{Int, ActionNode}(), 0, depth, true, 0.0, 0.0, 0.0, false)
 end
 
 # Fix the forward reference: ActionNode children actually hold HistoryNodes
@@ -101,20 +103,44 @@ end
 """Check if a history node is a leaf (not yet expanded)."""
 is_leaf(node::HistoryNode) = isempty(node.children)
 
-"""Update the cached V_robust from children's Q_robust values."""
+"""
+Update the cached V_robust from children's Q_robust values.
+
+Only considers actions that have been visited (N > 0). If no action has been
+visited, falls back to V_rollout (the sampled rollout return at this node).
+If V_rollout hasn't been set either, falls back to 0.
+"""
 function update_robust_value!(node::HistoryNode)
     if is_leaf(node)
-        node.V_robust = 0.0
+        node.V_robust = node.has_rollout ? node.V_rollout : 0.0
+        return
+    end
+
+    visited_qs = [an.Q_robust for (_, an) in node.children if an.N > 0]
+
+    if isempty(visited_qs)
+        node.V_robust = node.has_rollout ? node.V_rollout : 0.0
     else
-        node.V_robust = maximum(an.Q_robust for (_, an) in node.children)
+        node.V_robust = maximum(visited_qs)
     end
 end
 
-"""Update the cached V_nominal from children's Q_nominal values."""
+"""
+Update the cached V_nominal from children's Q_nominal values.
+
+Same logic as update_robust_value!: only visited actions count; V_rollout is the fallback.
+"""
 function update_nominal_value!(node::HistoryNode)
     if is_leaf(node)
-        node.V_nominal = 0.0
+        node.V_nominal = node.has_rollout ? node.V_rollout : 0.0
+        return
+    end
+
+    visited_qs = [an.Q_nominal for (_, an) in node.children if an.N > 0]
+
+    if isempty(visited_qs)
+        node.V_nominal = node.has_rollout ? node.V_rollout : 0.0
     else
-        node.V_nominal = maximum(an.Q_nominal for (_, an) in node.children)
+        node.V_nominal = maximum(visited_qs)
     end
 end

@@ -62,10 +62,10 @@ reward(m::TabularPOMDP, s::Int, a::Int) = m.R[s, a]
 
 """Sample next state: s_next ~ P_T^o(· | s, a)."""
 function sample_transition(m::TabularPOMDP, s::Int, a::Int)
-    return rand(Categorical(transition_dist(m, s, a)))
+    return rand(Categorical(Vector{Float64}(transition_dist(m, s, a))))
 end
 
 """Sample observation: z ~ P_Z^o(· | s_next)."""
 function sample_observation(m::TabularPOMDP, s_next::Int)
-    return rand(Categorical(observation_dist(m, s_next)))
+    return rand(Categorical(Vector{Float64}(observation_dist(m, s_next))))
 end
