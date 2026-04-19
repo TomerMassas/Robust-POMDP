@@ -51,8 +51,7 @@ observation_radius(u::UncertaintySets, s_next::Int) = u.ρ_Z[s_next]
 Create uncertainty sets with uniform radii (same ρ_T for all (s,a), same ρ_Z for all s).
 Convenient for experiments where uncertainty is homogeneous.
 """
-function uniform_uncertainty(n_states::Int, n_actions::Int, ρ_T::Float64, ρ_Z::Float64,
-                             metric::DistanceMetric=TVDistance())
+function uniform_uncertainty(n_states::Int, n_actions::Int, ρ_T::Float64, ρ_Z::Float64, metric::DistanceMetric=TVDistance())
     return UncertaintySets(
         fill(ρ_T, n_states, n_actions),
         fill(ρ_Z, n_states),
