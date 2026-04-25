@@ -6,7 +6,8 @@ then computes robust values via worst-case Bellman backups using
 projected uncertainty sets.
 
 Tunable parameters:
-  K: robust backup frequency (K=N is two-phase, K=1 is fully interleaved)
+  sims_per_backup: number of simulations between successive robust backups.
+    sims_per_backup == budget is two-phase; sims_per_backup == 1 is fully interleaved.
   ucb_mode: :nominal (optimistic) or :robust (pessimistic) exploration
 
 Observability:
@@ -18,16 +19,20 @@ Observability:
 # --- Top-level planner ---
 
 """
-    robust_pomcp_plan(belief, model, uncertainty, horizon, budget, batch_size;
+    robust_pomcp_plan(belief, model, uncertainty, horizon, budget, sims_per_backup;
                       ucb_mode, exploration_constant, logger)
 
 Plan a single action using Robust-Value POMCP.
+
+`sims_per_backup` controls how many simulations run between successive robust
+backups. `sims_per_backup == budget` is two-phase; `sims_per_backup == 1` is
+fully interleaved.
 
 Returns: (best_action, root)
 """
 function robust_pomcp_plan(belief::Vector{Float64}, model::TabularPOMDP,
                            uncertainty::UncertaintySets, horizon::Int,
-                           budget::Int, batch_size::Int;
+                           budget::Int, sims_per_backup::Int;
                            ucb_mode::Symbol=:nominal,
                            exploration_constant::Float64=1.0,
                            logger::Union{SolverLog, Nothing}=nothing)
@@ -39,8 +44,8 @@ function robust_pomcp_plan(belief::Vector{Float64}, model::TabularPOMDP,
     # State machinery for robust_backup indexing across the run
     backup_counter = Ref(0)
 
-    for batch in 1:ceil(Int, budget / batch_size)
-        n_sims_this_batch = min(batch_size, budget - (batch - 1) * batch_size)
+    for batch in 1:ceil(Int, budget / sims_per_backup)
+        n_sims_this_batch = min(sims_per_backup, budget - (batch - 1) * sims_per_backup)
 
         for _ in 1:n_sims_this_batch
             sim_index = _next_sim_index(logger)

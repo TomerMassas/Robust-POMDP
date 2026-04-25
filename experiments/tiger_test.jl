@@ -37,13 +37,13 @@ uncertainty = uniform_uncertainty(tiger.n_states,
 belief = [0.5, 0.5]
 horizon = 5
 budget = 500          # small for debugging; raise to 500 for a full run
-batch_size = 5       # K = N → two-phase
+sims_per_backup = 5   # robust backup every 5 sims (interleaved)
 
 println("Parameters:")
-println("  belief      = $belief")
-println("  horizon     = $horizon")
-println("  budget      = $budget")
-println("  batch_size  = $batch_size")
+println("  belief           = $belief")
+println("  horizon          = $horizon")
+println("  budget           = $budget")
+println("  sims_per_backup  = $sims_per_backup")
 println("  ρ_T         = $ρ_T_val")
 println("  ρ_Z         = $ρ_Z_val")
 println()
@@ -52,12 +52,12 @@ println()
 println("Running robust_pomcp_plan...")
 log = SolverLog()
 
-action, root = robust_pomcp_plan(belief, 
-                                 tiger, 
+action, root = robust_pomcp_plan(belief,
+                                 tiger,
                                  uncertainty,
-                                 horizon, 
-                                 budget, 
-                                 batch_size;
+                                 horizon,
+                                 budget,
+                                 sims_per_backup;
                                  ucb_mode=:nominal,
                                  logger=log
                                 )
@@ -99,7 +99,7 @@ export_log_to_json(
         "n_obs"      => tiger.n_obs,
         "horizon"    => horizon,
         "budget"     => budget,
-        "batch_size" => batch_size,
+        "sims_per_backup" => sims_per_backup,
         "ucb_mode"   => "nominal",
         "rho_T"      => ρ_T_val,
         "rho_Z"      => ρ_Z_val,
