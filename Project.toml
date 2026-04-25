@@ -1,12 +1,16 @@
 name = "RobustOnlinePOMDP"
 uuid = "a7e29f03-4c6b-4e8f-a1d2-1234567890ab"
-authors = ["Tomer Massas"]
 version = "0.1.0"
+authors = ["Tomer Massas"]
 
 [deps]
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+Debugger = "31a5f54b-26ea-5ae9-a837-f05ce5417438"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 HiGHS = "87dc4568-4c63-4d18-b0c0-bb2238e4078b"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
 
 [compat]
+Debugger = "0.7.16"
 julia = "1.10"

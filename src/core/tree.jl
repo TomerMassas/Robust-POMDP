@@ -6,7 +6,25 @@ The tree alternates between HistoryNode (belief nodes) and ActionNode (action ed
 
 Each HistoryNode stores particles defining the belief and S_in (sampled state support).
 Each ActionNode stores Q-values and Z_in (sampled observation support).
+
+Every node gets a unique integer `id` at creation time (via `next_node_id!`).
+Events emitted during simulation reference nodes by these ids.
 """
+
+# --- Node ID allocator ---
+
+"""Mutable counter producing unique sequential node ids. Reset per planner call."""
+mutable struct NodeIdCounter
+    next::Int
+end
+
+NodeIdCounter() = NodeIdCounter(0)
+
+"""Return a fresh id and advance the counter."""
+function next_node_id!(counter::NodeIdCounter)
+    counter.next += 1
+    return counter.next
+end
 
 # --- ActionNode ---
 
@@ -16,6 +34,7 @@ Each ActionNode stores Q-values and Z_in (sampled observation support).
 Represents an action edge in the search tree.
 
 Fields:
+- `id`: unique integer id, assigned at creation
 - `children`: observation → child HistoryNode
 - `Z_in`: set of observations seen (sampled observation support)
 - `N`: visit count
@@ -24,6 +43,7 @@ Fields:
 - `dirty`: whether this node needs robust value recomputation
 """
 mutable struct ActionNode
+    id::Int
     children::Dict{Int, Any}    # obs → HistoryNode (Any to handle forward reference)
     Z_in::Set{Int}
     N::Int
@@ -32,8 +52,8 @@ mutable struct ActionNode
     dirty::Bool
 end
 
-function ActionNode()
-    return ActionNode(Dict{Int, Any}(), Set{Int}(), 0, 0.0, 0.0, true)
+function ActionNode(id::Int)
+    return ActionNode(id, Dict{Int, Any}(), Set{Int}(), 0, 0.0, 0.0, true)
 end
 
 # --- HistoryNode ---
@@ -52,6 +72,7 @@ Fields:
 - `dirty`: whether this node needs robust value recomputation
 """
 mutable struct HistoryNode
+    id::Int
     particles::Vector{Int}
     S_in::Set{Int}
     children::Dict{Int, ActionNode}
@@ -64,8 +85,8 @@ mutable struct HistoryNode
     has_rollout::Bool       # whether V_rollout has been set
 end
 
-function HistoryNode(depth::Int)
-    return HistoryNode(Int[], Set{Int}(), Dict{Int, ActionNode}(), 0, depth, true, 0.0, 0.0, 0.0, false)
+function HistoryNode(id::Int, depth::Int)
+    return HistoryNode(id, Int[], Set{Int}(), Dict{Int, ActionNode}(), 0, depth, true, 0.0, 0.0, 0.0, false)
 end
 
 # Fix the forward reference: ActionNode children actually hold HistoryNodes
@@ -81,23 +102,41 @@ function add_particle!(node::HistoryNode, s::Int)
     node.dirty = true
 end
 
-"""Record a new observation at an action node. Creates child if needed. Marks as dirty."""
-function get_or_create_child!(action_node::ActionNode, z::Int, child_depth::Int)
+"""
+Record a new observation at an action node. Creates child if needed. Marks as dirty.
+Returns (child_node, was_created) so callers can log which nodes were new.
+"""
+function get_or_create_child!(action_node::ActionNode, z::Int, child_depth::Int,
+                              id_counter::NodeIdCounter)
     push!(action_node.Z_in, z)
+    was_created = false
     if !haskey(action_node.children, z)
-        action_node.children[z] = HistoryNode(child_depth)
+        new_id = next_node_id!(id_counter)
+        action_node.children[z] = HistoryNode(new_id, child_depth)
         action_node.dirty = true
+        was_created = true
     end
-    return action_node.children[z]::HistoryNode
+    return (action_node.children[z]::HistoryNode, was_created)
 end
 
-"""Expand a history node: create ActionNodes for all actions."""
-function expand!(node::HistoryNode, n_actions::Int)
+"""
+Expand a history node: create ActionNodes for all actions.
+Returns (created_ids, created_actions) where both vectors align:
+  created_ids[i] is the new ActionNode's id
+  created_actions[i] is the action index (1..n_actions) that node corresponds to
+"""
+function expand!(node::HistoryNode, n_actions::Int, id_counter::NodeIdCounter)
+    created_ids = Int[]
+    created_actions = Int[]
     for a in 1:n_actions
         if !haskey(node.children, a)
-            node.children[a] = ActionNode()
+            new_id = next_node_id!(id_counter)
+            node.children[a] = ActionNode(new_id)
+            push!(created_ids, new_id)
+            push!(created_actions, a)
         end
     end
+    return (created_ids, created_actions)
 end
 
 """Check if a history node is a leaf (not yet expanded)."""

@@ -8,12 +8,21 @@ include("core/tree.jl")
 include("uncertainty/uncertainty_sets.jl")
 include("uncertainty/projected_sets.jl")
 
+# Debug / observability (must be included before solvers so they can use it)
+include("debug/logger.jl")
+
 # Solvers
 include("solvers/robust_pomcp.jl")
 
-# Public API (what users of the package will call)
+# JSON export (included last — it serializes everything above)
+include("debug/json_export.jl")
+
+# Public API
 export TabularPOMDP, UncertaintySets, TVDistance, DistanceMetric
 export uniform_uncertainty
 export robust_pomcp_plan
+export SolverLog, num_events
+export ObsLPResult, TransLPResult
+export export_log_to_json
 
 end # module

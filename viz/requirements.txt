@@ -1,0 +1,2 @@
+dash>=2.14
+dash-cytoscape>=1.0

@@ -1,89 +1,115 @@
 """
 Tiger POMDP — Solver A end-to-end test script.
 
-This is a notebook-style script: run top-to-bottom, comment out sections as needed.
+Runs the solver with a logger enabled, reports summary at the root,
+and exports the entire run (tree + simulations + backups) to a JSON file
+at `experiments/tiger_run.json`.
 
-Sections:
-  T1: Pure end-to-end run (sanity: does it run?)
-  T2: Uniform belief → should pick listen
-  T3: Skewed belief → should pick the correct opening action
-  T4: Q-value bar chart (Q_nominal vs Q_robust)
-  T5: Convergence plot (Q vs budget N)
-  T6: ρ sweep (Q vs uncertainty radius)
-  T7: K sweep
-  T8: UCB mode sweep
+The JSON file is consumed by the Python Dash UI in `viz/app.py`.
+
+Parameters (edit these for different runs):
+  - budget: number of simulations (use 50 for debugging, 500 for full run)
+  - horizon: planning depth
+  - ρ_T, ρ_Z: uncertainty radii
 """
 
 using RobustOnlinePOMDP
 include("tiger_problem.jl")
 
-# ==============================================================================
-# T1: Pure end-to-end run
-# ==============================================================================
-
 println("=" ^ 70)
-println("T1: End-to-end run")
+println("Tiger POMDP — Robust POMCP")
 println("=" ^ 70)
 
 # Build problem
 tiger = make_tiger_pomdp(listen_accuracy=0.85)
 
-# Uncertainty: no transition uncertainty, moderate observation uncertainty
-uncertainty = uniform_uncertainty(
-    tiger.n_states, tiger.n_actions,
-    0.0,    # ρ_T
-    0.1,    # ρ_Z
-    TVDistance()
-)
+# Uncertainty: small for debugging
+ρ_T_val = 0.0
+ρ_Z_val = 0.1
+uncertainty = uniform_uncertainty(tiger.n_states, 
+                                    tiger.n_actions,
+                                    ρ_T_val, 
+                                    ρ_Z_val,
+                                    TVDistance()
+                                    )
 
 # Parameters
 belief = [0.5, 0.5]
 horizon = 5
-budget = 500
-batch_size = 500   # K = N → two-phase
+budget = 500          # small for debugging; raise to 500 for a full run
+batch_size = 5       # K = N → two-phase
 
-# Run solver
-println("Running robust_pomcp_plan...")
-println("  belief = $belief")
-println("  horizon = $horizon, budget = $budget, K = $batch_size")
-println("  ρ_T = 0.0, ρ_Z = 0.1")
+println("Parameters:")
+println("  belief      = $belief")
+println("  horizon     = $horizon")
+println("  budget      = $budget")
+println("  batch_size  = $batch_size")
+println("  ρ_T         = $ρ_T_val")
+println("  ρ_Z         = $ρ_Z_val")
 println()
 
-elapsed = @elapsed (action, root) = robust_pomcp_plan(
-    belief, tiger, uncertainty,
-    horizon, budget, batch_size;
-    ucb_mode=:nominal
-)
+# Run solver with logger enabled
+println("Running robust_pomcp_plan...")
+log = SolverLog()
 
-# Report
+action, root = robust_pomcp_plan(belief, 
+                                 tiger, 
+                                 uncertainty,
+                                 horizon, 
+                                 budget, 
+                                 batch_size;
+                                 ucb_mode=:nominal,
+                                 logger=log
+                                )
+
 action_names = ["open-left", "open-right", "listen"]
 println("Solver returned action $action ($(action_names[action]))")
-println("Elapsed time: $(round(elapsed, digits=3)) s")
 println()
 
-# Q values at root for every action
+# Q values at root
 println("Q values at root:")
-println("  Action            Q_nominal        Q_robust       N_visits")
-println("  " * "-" ^ 60)
+println("  Action           Q_nominal     Q_robust      N_visits")
+println("  " * "-" ^ 55)
 for a in 1:tiger.n_actions
     if haskey(root.children, a)
         an = root.children[a]
         q_n = round(an.Q_nominal, digits=3)
         q_r = round(an.Q_robust, digits=3)
-        println("  $(rpad(action_names[a], 17)) $(rpad(q_n, 16)) $(rpad(q_r, 15)) $(an.N)")
+        println("  $(rpad(action_names[a], 16)) $(rpad(q_n, 13)) $(rpad(q_r, 13)) $(an.N)")
     else
-        println("  $(rpad(action_names[a], 17)) (not expanded)")
+        println("  $(rpad(action_names[a], 16)) (not expanded)")
     end
 end
 println()
 
 # Tree size
 n_h, n_a = RobustOnlinePOMDP.tree_size(root)
-println("Tree size:")
-println("  HistoryNodes = $n_h")
-println("  ActionNodes  = $n_a")
-println("  Root particle count = $(length(root.particles))")
-println("  Root S_in = $(root.S_in)")
+println("Tree: $n_h HistoryNodes, $n_a ActionNodes")
+println("Log:  $(num_events(log)) events")
 println()
 
-println("T1: Done. No crashes.")
+# Export the event log to JSON for the Python UI
+output_path = joinpath(@__DIR__, "tiger_run.json")
+export_log_to_json(
+    log, output_path;
+    metadata = Dict(
+        "problem"    => "Tiger",
+        "n_states"   => tiger.n_states,
+        "n_actions"  => tiger.n_actions,
+        "n_obs"      => tiger.n_obs,
+        "horizon"    => horizon,
+        "budget"     => budget,
+        "batch_size" => batch_size,
+        "ucb_mode"   => "nominal",
+        "rho_T"      => ρ_T_val,
+        "rho_Z"      => ρ_Z_val,
+        "belief"     => belief,
+        "action_names" => action_names,
+        "state_names"  => ["tiger-left", "tiger-right"],
+        "obs_names"    => ["hear-left", "hear-right"],
+    )
+)
+
+println("JSON exported: $output_path")
+println()
+println("To explore: `cd viz && python app.py`")

@@ -51,10 +51,10 @@ function minimize_over_projected_tv_ball(p_nominal::Vector{Float64}, ρ::Float64
     set_silent(model)
 
     # Variables: deviations d⁺, d⁻ for each element, and δ⁺, δ⁻ for out-of-support mass change
-    @variable(model, d_plus[1:n] >= 0)
-    @variable(model, d_minus[1:n] >= 0)
-    @variable(model, δ_plus >= 0)
-    @variable(model, δ_minus >= 0)
+    @variable(model, d_plus[1:n] >= 0)  # how much EACH entry moves above nominal Pr
+    @variable(model, d_minus[1:n] >= 0) # how much EACH entry moves below nominal Pr
+    @variable(model, δ_plus >= 0)       # aggregate OUT-of-support mass INCREASE 
+    @variable(model, δ_minus >= 0)      # aggregate OUT-of-support mass DECREASE 
 
     # p_i = p_nominal_i + d_plus_i - d_minus_i
     # Constraint: p_i ≥ 0
