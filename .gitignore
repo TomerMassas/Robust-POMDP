@@ -1,3 +1,17 @@
 # Discussion log (private planning documents)
 docs/discussion/
 .claude
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.python-version
+.pytest_cache/
+
+# IDE / personal workflow
+.idea/
+my_prompt

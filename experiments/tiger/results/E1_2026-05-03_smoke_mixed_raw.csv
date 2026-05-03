@@ -1,0 +1,5 @@
+experiment_id,date,description,planner_label,rho_T,rho_Z,ucb_mode,budget,sims_per_backup,horizon,eta_world_obs,eta_world_trans,trial_seed,episode_return,runtime_s,n_correct_open,n_wrong_open,n_listen_actions
+E1,2026-05-03,smoke_mixed,BasicPOMCP,0.0,0.0,nominal,20,5,5,0.0,0.0,1,-93.0,0.011904099956154823,1,1,3
+E1,2026-05-03,smoke_mixed,BasicPOMCP,0.0,0.0,nominal,20,5,5,0.0,0.0,2,-93.0,0.008940299972891808,1,1,3
+E1,2026-05-03,smoke_mixed,robust_pomcp,0.0,0.0,nominal,20,5,5,0.0,0.0,1,-192.0,0.017293700017035007,1,2,2
+E1,2026-05-03,smoke_mixed,robust_pomcp,0.0,0.0,nominal,20,5,5,0.0,0.0,2,28.0,0.011871699942275882,3,0,2

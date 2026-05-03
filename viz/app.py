@@ -12,6 +12,7 @@ Usage:
 Open http://localhost:8050 in a browser.
 """
 
+import argparse
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -29,7 +30,7 @@ cyto.load_extra_layouts()
 # Load data
 # ---------------------------------------------------------------------------
 
-DEFAULT_JSON_PATH = Path(__file__).parent.parent / "experiments" / "tiger_run.json"
+DEFAULT_JSON_PATH = Path(__file__).parent.parent / "experiments" / "tiger" / "tiger_run.json"
 
 
 def load_run(path):
@@ -228,8 +229,8 @@ def to_cytoscape_elements(nodes, edges, active_id, recently_created, meta=None):
     def aname(a):
         if a is None:
             return "?"
-        if action_names and 1 <= a <= len(action_names):
-            return action_names[a - 1]
+        if action_names and 0 <= a < len(action_names):
+            return action_names[a]
         return str(a)
 
     elements = []
@@ -296,9 +297,9 @@ def render_event_description(ev, meta):
     action_names = meta.get("action_names", [])
     obs_names = meta.get("obs_names", [])
 
-    def sname(s): return state_names[s - 1] if state_names else str(s)
-    def aname(a): return action_names[a - 1] if action_names else str(a)
-    def oname(z): return obs_names[z - 1] if obs_names else str(z)
+    def sname(s): return state_names[s] if state_names else str(s)
+    def aname(a): return action_names[a] if action_names else str(a)
+    def oname(z): return obs_names[z] if obs_names else str(z)
 
     etype = ev["type"]
     if etype == "sim_start":
@@ -439,13 +440,13 @@ def render_node_detail(raw, meta):
             rows.append(html.P(f"V_rollout: {raw['V_rollout']:.4f}"))
         s_in = raw.get("S_in", [])
         if state_names:
-            rows.append(html.P(f"S_in: {[state_names[s-1] for s in s_in]}"))
+            rows.append(html.P(f"S_in: {[state_names[s] for s in s_in]}"))
         else:
             rows.append(html.P(f"S_in: {s_in}"))
         rows.append(html.P(f"particles (count): {raw.get('particles_count', 0)}"))
     else:
         a = raw.get("action")
-        aname = action_names[a - 1] if (a and state_names) else str(a)
+        aname = action_names[a] if (a is not None and action_names) else str(a)
         rows.append(html.P(f"action: {a}  ({aname})"))
         rows.append(html.P(f"N: {raw['N']}"))
         rows.append(html.P(f"Q_nominal: {raw['Q_nominal']:.4f}"))
@@ -478,7 +479,19 @@ def jump_to_prev_of_type(events, current_idx, target_type):
 
 app = Dash(__name__, title="Robust POMCP Explorer")
 
-DATA = load_run(DEFAULT_JSON_PATH) if DEFAULT_JSON_PATH.exists() else None
+def _resolve_json_path() -> Path:
+    parser = argparse.ArgumentParser(description="Robust POMCP Explorer")
+    parser.add_argument("--json",
+                        type=Path,
+                        default=DEFAULT_JSON_PATH,
+                        help="Path to the run JSON file (default: %(default)s)"
+                        )
+    args, _ = parser.parse_known_args()
+    return args.json
+
+
+JSON_PATH = _resolve_json_path()
+DATA = load_run(JSON_PATH) if JSON_PATH.exists() else None
 
 cyto_stylesheet = [
     {"selector": "node", "style": {
@@ -506,8 +519,8 @@ def build_layout():
     if DATA is None:
         return html.Div([
             html.H2("No data file found."),
-            html.P(f"Expected: {DEFAULT_JSON_PATH}"),
-            html.P("Run experiments/tiger_test.jl first."),
+            html.P(f"Expected: {JSON_PATH}"),
+            html.P("Run experiments/tiger/tiger_test.py first."),
         ])
 
     metadata = DATA.get("metadata", {})
@@ -582,17 +595,16 @@ app.layout = build_layout()
 # Callbacks
 # ---------------------------------------------------------------------------
 
-@app.callback(
-    Output("event-idx", "data"),
-    Input("btn-prev-step", "n_clicks"),
-    Input("btn-next-step", "n_clicks"),
-    Input("btn-prev-sim", "n_clicks"),
-    Input("btn-next-sim", "n_clicks"),
-    Input("btn-prev-bkp", "n_clicks"),
-    Input("btn-next-bkp", "n_clicks"),
-    State("event-idx", "data"),
-    prevent_initial_call=True,
-)
+@app.callback(Output("event-idx", "data"),
+              Input("btn-prev-step", "n_clicks"),
+              Input("btn-next-step", "n_clicks"),
+              Input("btn-prev-sim", "n_clicks"),
+              Input("btn-next-sim", "n_clicks"),
+              Input("btn-prev-bkp", "n_clicks"),
+              Input("btn-next-bkp", "n_clicks"),
+              State("event-idx", "data"),
+              prevent_initial_call=True
+              )
 def navigate(p_step, n_step, p_sim, n_sim, p_bkp, n_bkp, current):
     ctx = callback_context
     if not ctx.triggered:
@@ -616,20 +628,18 @@ def navigate(p_step, n_step, p_sim, n_sim, p_bkp, n_bkp, current):
     return no_update
 
 
-@app.callback(
-    Output("cyto", "elements"),
-    Output("event-header", "children"),
-    Output("event-detail", "children"),
-    Input("event-idx", "data"),
-)
+@app.callback(Output("cyto", "elements"),
+              Output("event-header", "children"),
+              Output("event-detail", "children"),
+              Input("event-idx", "data")
+              )
 def update_view(idx):
     events = DATA["events"]
     idx = max(0, min(idx, len(events) - 1))
     ev = events[idx]
 
     nodes, edges, active, created = rebuild_state(events, idx)
-    elements = to_cytoscape_elements(nodes, edges, active, created,
-                                      meta=DATA.get("metadata", {}))
+    elements = to_cytoscape_elements(nodes, edges, active, created, meta=DATA.get("metadata", {}))
 
     header = html.Div([
         html.B(f"Event #{idx + 1} of {len(events)}"),
@@ -640,10 +650,9 @@ def update_view(idx):
     return elements, header, detail
 
 
-@app.callback(
-    Output("node-detail", "children"),
-    Input("cyto", "tapNodeData"),
-)
+@app.callback(Output("node-detail", "children"),
+              Input("cyto", "tapNodeData")
+              )
 def show_node_info(data):
     raw = data["raw"] if data else None
     return render_node_detail(raw, DATA.get("metadata", {}))

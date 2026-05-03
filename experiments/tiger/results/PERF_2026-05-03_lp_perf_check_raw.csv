@@ -1,0 +1,11 @@
+experiment_id,date,description,planner_label,rho_T,rho_Z,ucb_mode,budget,sims_per_backup,horizon,eta_world_obs,eta_world_trans,trial_seed,episode_return,runtime_s,n_correct_open,n_wrong_open,n_listen_actions
+PERF,2026-05-03,lp_perf_check,robust_pomcp,0.0,0.1,nominal,100,5,5,0.0,0.0,1,-181.0,0.1744383000768721,2,2,1
+PERF,2026-05-03,lp_perf_check,robust_pomcp,0.0,0.1,nominal,100,5,5,0.0,0.0,2,28.0,0.15450539998710155,3,0,2
+PERF,2026-05-03,lp_perf_check,robust_pomcp,0.0,0.1,nominal,100,5,5,0.0,0.0,3,28.0,0.1586407998111099,3,0,2
+PERF,2026-05-03,lp_perf_check,robust_pomcp,0.0,0.1,nominal,100,5,5,0.0,0.0,4,6.0,0.17299690004438162,1,0,4
+PERF,2026-05-03,lp_perf_check,robust_pomcp,0.0,0.1,nominal,100,5,5,0.0,0.0,5,17.0,0.1610942999832332,2,0,3
+PERF,2026-05-03,lp_perf_check,robust_pomcp,0.0,0.1,nominal,100,5,5,0.0,0.0,6,17.0,0.15357540012337267,2,0,3
+PERF,2026-05-03,lp_perf_check,robust_pomcp,0.0,0.1,nominal,100,5,5,0.0,0.0,7,28.0,0.1622529998421669,3,0,2
+PERF,2026-05-03,lp_perf_check,robust_pomcp,0.0,0.1,nominal,100,5,5,0.0,0.0,8,17.0,0.1930211998987943,2,0,3
+PERF,2026-05-03,lp_perf_check,robust_pomcp,0.0,0.1,nominal,100,5,5,0.0,0.0,9,17.0,0.15390329994261265,2,0,3
+PERF,2026-05-03,lp_perf_check,robust_pomcp,0.0,0.1,nominal,100,5,5,0.0,0.0,10,39.0,0.16178629989735782,4,0,1

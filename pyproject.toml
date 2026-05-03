@@ -1,0 +1,27 @@
+[project]
+name = "robust_pomdp"
+version = "0.1.0"
+description = "Robust online POMDP planning with projected uncertainty sets (research code)"
+requires-python = ">=3.11"
+authors = [{ name = "Tomer Massas" }]
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.0",
+    "highspy>=1.7",
+    "pomdp-py>=1.3",
+]
+
+[project.optional-dependencies]
+viz = [
+    "dash>=2.14",
+    "dash-cytoscape>=1.0",
+    "matplotlib>=3.7",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["robust_pomdp*"]
