@@ -32,7 +32,7 @@ import pandas as pd
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-RESULTS_DIR = REPO_ROOT / "experiments" / "results"
+RESULTS_DIR = REPO_ROOT / "experiments" / "tiger" / "results"
 FIGURES_DIR = RESULTS_DIR / "figures"
 
 
@@ -41,22 +41,24 @@ FIGURES_DIR = RESULTS_DIR / "figures"
 # ---------------------------------------------------------------------------
 
 def find_csvs(experiment_id: str) -> list[Path]:
-    """Return all summary CSVs whose filename starts with `{experiment_id}_`.
-
-    Excludes the per-trial raw companions (`*_raw.csv`); those are loaded
-    explicitly by callers that need them.
-    """
-    return sorted(
-        p for p in RESULTS_DIR.glob(f"{experiment_id}_*.csv")
-        if not p.name.endswith("_raw.csv")
-    )
+    """Return all CSVs whose filename starts with `{experiment_id}_`."""
+    return sorted(RESULTS_DIR.glob(f"{experiment_id}_*.csv"))
 
 
 def read_latest(experiment_id: str,
-                suffix_filter: str | None = None
+                suffix_filter: str | None = None,
+                raw: bool = False
                 ) -> pd.DataFrame | None:
-    """Pick the most recent CSV for an experiment_id (optionally filtered by description suffix)."""
+    """Pick the most recent summary or raw CSV for an experiment_id.
+
+    Summary CSVs end in ``.csv``; raw CSVs end in ``_raw.csv``. Disambiguate
+    so callers asking for the summary don't accidentally pick up a raw file.
+    """
     candidates = find_csvs(experiment_id)
+    if raw:
+        candidates = [c for c in candidates if c.name.endswith("_raw.csv")]
+    else:
+        candidates = [c for c in candidates if not c.name.endswith("_raw.csv")]
     if suffix_filter is not None:
         candidates = [c for c in candidates if suffix_filter in c.name]
     if not candidates:
@@ -69,61 +71,263 @@ def read_latest(experiment_id: str,
 # Plot recipes
 # ---------------------------------------------------------------------------
 
-def plot_e1():
-    """E1 — Baseline equivalence: BasicPOMCP vs robust(ρ=0). Bar chart with SEM."""
+def plot_e1_violin():
+    """E1 — Distribution of per-episode returns as a violin per planner."""
+    raw = read_latest("E1", raw=True)
+    if raw is None:
+        print("E1 violin: no raw CSV found, skipping.")
+        return
+    planners = ["BasicPOMCP", "robust_pomcp"]
+    data = [raw.loc[raw["planner_label"] == p, "episode_return"].to_numpy()
+            for p in planners]
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    parts = ax.violinplot(data,
+                          positions=range(len(planners)),
+                          showmeans=False,
+                          showmedians=False,
+                          showextrema=False
+                          )
+    for body, color in zip(parts["bodies"], ["#4c72b0", "#dd8452"]):
+        body.set_facecolor(color)
+        body.set_alpha(0.6)
+        body.set_edgecolor("black")
+    bp = ax.boxplot(data,
+                    positions=range(len(planners)),
+                    widths=0.15,
+                    patch_artist=True,
+                    showfliers=False,
+                    manage_ticks=False
+                    )
+    for box in bp["boxes"]:
+        box.set_facecolor("white")
+        box.set_edgecolor("black")
+    for med in bp["medians"]:
+        med.set_color("black")
+        med.set_linewidth(2)
+
+    ax.set_xticks(range(len(planners)))
+    ax.set_xticklabels(planners)
+    ax.set_ylabel("Total episode return")
+    n = int(raw.groupby("planner_label").size().min())
+    ax.set_title(f"E1 — Distribution of episode returns (n={n}, nominal Tiger)")
+    ax.axhline(0, color="black", lw=0.5)
+    ax.grid(axis="y", linestyle=":", alpha=0.5)
+    fig.tight_layout()
+
+    out_dir = FIGURES_DIR / "E1"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / "violin_returns.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"  -> {out.relative_to(REPO_ROOT)}")
+
+
+def plot_e1_actions():
+    """E1 — Action breakdown: stacked bar of correct / wrong / listen per planner."""
     df = read_latest("E1")
     if df is None:
-        print("E1: no CSV found, skipping.")
+        print("E1 actions: no summary CSV found, skipping.")
         return
-    fig, ax = plt.subplots(figsize=(5, 4))
-    labels = df["planner_label"].tolist()
-    means = df["mean_return"].tolist()
-    sems = df["sem_return"].tolist()
-    ax.bar(range(len(labels)), means, yerr=sems, capsize=6, color=["#4c72b0", "#dd8452"])
-    ax.set_xticks(range(len(labels)))
-    ax.set_xticklabels(labels)
+    df = df.set_index("planner_label").loc[["BasicPOMCP", "robust_pomcp"]]
+    correct = df["n_correct_open"].to_numpy()
+    wrong = df["n_wrong_open"].to_numpy()
+    listen = df["n_listen_actions"].to_numpy()
+    total_actions = int((df["n_trials"] * df["horizon"]).iloc[0])
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    x = range(len(df))
+    width = 0.55
+    b1 = ax.bar(x, correct, width, label="correct open", color="#55a868")
+    b2 = ax.bar(x, wrong, width, bottom=correct, label="wrong open", color="#c44e52")
+    b3 = ax.bar(x, listen, width, bottom=correct + wrong, label="listen", color="#8172b3")
+
+    for bars, values, base in [
+        (b1, correct, [0] * len(correct)),
+        (b2, wrong, correct),
+        (b3, listen, correct + wrong),
+    ]:
+        for bar, v, b in zip(bars, values, base):
+            if v > 0:
+                ax.text(bar.get_x() + bar.get_width() / 2,
+                        b + v / 2,
+                        str(int(v)),
+                        ha="center",
+                        va="center",
+                        color="white",
+                        fontsize=10,
+                        fontweight="bold"
+                        )
+
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(df.index.tolist())
+    ax.set_ylabel("Total action count")
+    ax.set_title(f"E1 — Action breakdown ({total_actions} total actions per planner)")
+    ax.legend(loc="upper right")
+    ax.grid(axis="y", linestyle=":", alpha=0.5)
+    fig.tight_layout()
+
+    out_dir = FIGURES_DIR / "E1"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / "action_breakdown.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"  -> {out.relative_to(REPO_ROOT)}")
+
+
+def plot_e1():
+    plot_e1_violin()
+    plot_e1_actions()
+
+
+def plot_e2_line():
+    """E2 — Mean return ± SEM vs ρ_Z, on the nominal world."""
+    df = read_latest("E2")
+    if df is None:
+        print("E2 line: no summary CSV found, skipping.")
+        return
+    df = df.sort_values("rho_Z")
+    fig, ax = plt.subplots(figsize=(6, 4.5))
+    ax.errorbar(df["rho_Z"],
+                df["mean_return"],
+                yerr=df["sem_return"],
+                marker="o",
+                capsize=4,
+                color="#4c72b0",
+                linewidth=1.5
+                )
+    ax.set_xlabel("ρ_Z (planner's observation uncertainty radius)")
     ax.set_ylabel("Mean episodic return")
-    ax.set_title("E1 — Baseline equivalence (nominal Tiger)")
+    n = int(df["n_trials"].iloc[0])
+    ax.set_title(f"E2 — Pessimism cost on nominal world (n={n} per ρ_Z)")
     ax.axhline(0, color="black", lw=0.5)
+    ax.grid(linestyle=":", alpha=0.5)
     fig.tight_layout()
-    out = FIGURES_DIR / "E1_baseline_equivalence.png"
+
+    out_dir = FIGURES_DIR / "E2"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / "line_return_vs_rho.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     print(f"  -> {out.relative_to(REPO_ROOT)}")
 
 
-def plot_e2_e3():
-    """E2/E3 — ρ_Z sweep, nominal vs perturbed worlds, side by side."""
-    e2 = read_latest("E2")
-    e3 = read_latest("E3")
-    if e2 is None and e3 is None:
-        print("E2/E3: no CSVs found, skipping.")
+def plot_e2_violins():
+    """E2 — One violin per ρ_Z showing the per-episode return distribution."""
+    raw = read_latest("E2", raw=True)
+    if raw is None:
+        print("E2 violins: no raw CSV found, skipping.")
         return
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharey=True)
-    for ax, df, title in zip(axes,
-                              [e2, e3],
-                              ["E2 — Nominal world", "E3 — Perturbed world (η=0.20)"]
-                              ):
-        if df is None:
-            ax.set_visible(False)
-            continue
-        df = df.sort_values("rho_Z")
-        ax.errorbar(df["rho_Z"],
-                    df["mean_return"],
-                    yerr=df["sem_return"],
-                    marker="o",
-                    capsize=4,
-                    color="#4c72b0"
+    rho_values = sorted(raw["rho_Z"].unique())
+    data = [raw.loc[raw["rho_Z"] == r, "episode_return"].to_numpy() for r in rho_values]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    parts = ax.violinplot(data,
+                          positions=range(len(rho_values)),
+                          showmeans=False,
+                          showmedians=False,
+                          showextrema=False
+                          )
+    cmap = plt.get_cmap("viridis")
+    for i, body in enumerate(parts["bodies"]):
+        body.set_facecolor(cmap(i / max(1, len(rho_values) - 1)))
+        body.set_alpha(0.6)
+        body.set_edgecolor("black")
+    bp = ax.boxplot(data,
+                    positions=range(len(rho_values)),
+                    widths=0.15,
+                    patch_artist=True,
+                    showfliers=False,
+                    manage_ticks=False
                     )
-        ax.set_xlabel("ρ_Z")
-        ax.set_title(title)
-        ax.axhline(0, color="black", lw=0.5)
-    axes[0].set_ylabel("Mean episodic return")
+    for box in bp["boxes"]:
+        box.set_facecolor("white")
+        box.set_edgecolor("black")
+    for med in bp["medians"]:
+        med.set_color("black")
+        med.set_linewidth(2)
+
+    ax.set_xticks(range(len(rho_values)))
+    ax.set_xticklabels([f"{r:g}" for r in rho_values])
+    ax.set_xlabel("ρ_Z")
+    ax.set_ylabel("Total episode return")
+    n = int(raw.groupby("rho_Z").size().min())
+    ax.set_title(f"E2 — Return distribution per ρ_Z (n={n} per violin, nominal world)")
+    ax.axhline(0, color="black", lw=0.5)
+    ax.grid(axis="y", linestyle=":", alpha=0.5)
     fig.tight_layout()
-    out = FIGURES_DIR / "E2_E3_rho_z_sweep.png"
+
+    out_dir = FIGURES_DIR / "E2"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / "violin_returns.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     print(f"  -> {out.relative_to(REPO_ROOT)}")
+
+
+def plot_e2_actions():
+    """E2 — Stacked action breakdown per ρ_Z (correct / wrong / listen)."""
+    df = read_latest("E2")
+    if df is None:
+        print("E2 actions: no summary CSV found, skipping.")
+        return
+    df = df.sort_values("rho_Z").reset_index(drop=True)
+    rho_values = df["rho_Z"].tolist()
+    correct = df["n_correct_open"].to_numpy()
+    wrong = df["n_wrong_open"].to_numpy()
+    listen = df["n_listen_actions"].to_numpy()
+    total_actions = int((df["n_trials"] * df["horizon"]).iloc[0])
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    x = range(len(df))
+    width = 0.6
+    b1 = ax.bar(x, correct, width, label="correct open", color="#55a868")
+    b2 = ax.bar(x, wrong, width, bottom=correct, label="wrong open", color="#c44e52")
+    b3 = ax.bar(x, listen, width, bottom=correct + wrong, label="listen", color="#8172b3")
+
+    for bars, values, base in [
+        (b1, correct, [0] * len(correct)),
+        (b2, wrong, correct),
+        (b3, listen, correct + wrong),
+    ]:
+        for bar, v, b in zip(bars, values, base):
+            if v > 0:
+                ax.text(bar.get_x() + bar.get_width() / 2,
+                        b + v / 2,
+                        str(int(v)),
+                        ha="center",
+                        va="center",
+                        color="white",
+                        fontsize=10,
+                        fontweight="bold"
+                        )
+
+    ax.set_xticks(list(x))
+    ax.set_xticklabels([f"{r:g}" for r in rho_values])
+    ax.set_xlabel("ρ_Z")
+    ax.set_ylabel("Total action count")
+    ax.set_title(f"E2 — Action breakdown per ρ_Z ({total_actions} actions per bar)")
+    ax.legend(loc="upper right")
+    ax.grid(axis="y", linestyle=":", alpha=0.5)
+    fig.tight_layout()
+
+    out_dir = FIGURES_DIR / "E2"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / "action_breakdown.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"  -> {out.relative_to(REPO_ROOT)}")
+
+
+def plot_e2():
+    plot_e2_line()
+    plot_e2_violins()
+    plot_e2_actions()
+
+
+def plot_e3_placeholder():
+    """E3 plots not yet defined — will be planned separately."""
+    pass
 
 
 def plot_e4():
@@ -279,8 +483,8 @@ def plot_e7():
 
 PLOTTERS = {
     "E1": plot_e1,
-    "E2": plot_e2_e3,
-    "E3": plot_e2_e3,  # same plot, runs once below via dedup
+    "E2": plot_e2,
+    "E3": plot_e3_placeholder,  # plots not yet defined
     "E4": plot_e4,
     "E5": plot_e5,
     "E6": plot_e6,
@@ -311,7 +515,6 @@ def main():
     else:
         wanted = set(PLOTTERS.keys())
 
-    # Dedup recipes (E2 and E3 share one plot function)
     fns_already_run: set = set()
     for eid in sorted(wanted):
         fn = PLOTTERS.get(eid)

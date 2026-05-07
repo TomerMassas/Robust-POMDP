@@ -7,9 +7,7 @@ keeping the comparison apples-to-apples without re-encoding the problem.
 
 States, actions, observations are 0-based integers wrapped in tiny hashable
 classes. The adapter pre-builds the four pomdp_py models once; the planner
-factory composes them into a fresh Agent + POMCP per call (same semantics as
-Julia's `action(planner, b)` with a fresh SparseCat belief — see
-`pomdps_adapter.jl`).
+factory composes them into a fresh Agent + POMCP per call.
 """
 
 from __future__ import annotations
@@ -205,8 +203,7 @@ def make_basicpomcp_belief_updater(model_planner: TabularPOMDP
     """Reuse our discrete Bayes filter for the BasicPOMCP path.
 
     Mathematically equivalent to pomdp_py's update on a Histogram and avoids
-    constructing Histogram objects on the hot path. Mirrors Julia's choice in
-    `sweep.jl::make_basicpomcp_belief_updater`.
+    constructing Histogram objects on the hot path.
     """
     from robust_pomdp.evaluation.belief_update import bayes_update
     return lambda b, a, o: bayes_update(b, model_planner, a, o)

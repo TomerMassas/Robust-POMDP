@@ -5,13 +5,10 @@ Experiment sweep infrastructure.
 statistics. `run_sweep` runs many configs, writes summary + raw CSVs per sweep,
 and appends a description line to INDEX.md.
 
-CSV column schema is preserved bit-identical to the Julia version so that the
-existing `viz/plot_results.py` consumer keeps working.
-
 Two planner backends are dispatched on `planner_label`:
-    "robust_pomcp" — uses our `robust_pomcp_plan` + the discrete `bayes_update`.
-    "BasicPOMCP"   — implemented in Phase 6 via the pomdp_py adapter.
-                     For now this raises NotImplementedError.
+    "robust_pomcp" — our `robust_pomcp_plan` + the discrete `bayes_update`.
+    "BasicPOMCP"   — pomdp_py's POMCP via the adapter (label kept for CSV
+                     schema continuity).
 """
 
 from __future__ import annotations

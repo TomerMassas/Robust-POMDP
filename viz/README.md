@@ -4,7 +4,7 @@ Interactive browser-based visualization of a Solver A run.
 
 ## How it works
 
-1. Julia solver writes a JSON file to `../experiments/tiger_run.json` containing the full tree, every simulation, every backup.
+1. The solver writes a JSON file to `../experiments/tiger/tiger_run.json` containing the full tree, every simulation, every backup.
 2. This Python app loads that JSON and gives you a browser UI with:
    - **Simulations + Tree tab**: step through each simulation, see the tree highlight the path, click any node to inspect.
    - **Backups + LPs tab**: step through each robust backup, see the two-step LP decomposition with concrete numbers.
@@ -21,10 +21,10 @@ pip install -r requirements.txt
 From the repo root:
 
 ```bash
-# Step 1 — generate the data (Julia side)
-julia --project=. experiments/tiger_test.jl
+# Step 1 — generate the data
+python experiments/tiger/tiger_test.py
 
-# Step 2 — start the UI (Python side)
+# Step 2 — start the UI
 cd viz
 python app.py
 ```

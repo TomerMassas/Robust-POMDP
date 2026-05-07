@@ -1,21 +1,16 @@
 """
-Phase 4 verification — §1.3 #3: robust backup formula correctness.
-
-Three layers (per plan §1.3 #3 and §5 Phase 4), strongest first:
+Robust backup formula correctness — two layers, strongest first:
 
   Layer 1 — Hand-trivial synthesized backup. Pre-computed σ, Q, on paper.
             Strict 1e-6 bar.
   Layer 2 — Qualitative Tiger sanity at uniform belief: Q_robust(listen) >
             Q_robust(open-{left,right}). Uses elevated exploration_constant
             to make the test deterministic given a fixed seed.
-  Layer 3 — Soft Julia cross-check on one captured robust_backup event from
-            experiments/tiger_run.json (Julia, budget=500, rho_Z=0.1).
-            Tolerance 1e-2; reported, not strictly required to pass.
 
 Run:
     python experiments/tiger/verify_robust_backup.py
 
-Exits 0 if layers 1 & 2 pass.
+Exits 0 if both layers pass.
 """
 
 from __future__ import annotations
@@ -102,9 +97,8 @@ def check_tiger_sanity() -> int:
 
     With default exploration_constant=1.0 and Tiger's reward magnitudes, basic
     POMCP can lock onto whichever action got the luckiest first rollout
-    (this matches the Julia behavior — also seed-dependent). For a
-    deterministic gate we run with elevated exploration_constant and a fixed
-    seed proven to behave sanely.
+    (seed-dependent). For a deterministic gate we run with elevated
+    exploration_constant and a fixed seed proven to behave sanely.
     """
     tiger = make_tiger_pomdp(0.85)
     unc = uniform_uncertainty(tiger.n_states, tiger.n_actions, 0.0, 0.1, TVDistance())
@@ -132,75 +126,12 @@ def check_tiger_sanity() -> int:
 
 
 # ---------------------------------------------------------------------------
-# Layer 3 — Soft Julia cross-check
-# ---------------------------------------------------------------------------
-
-# Captured from experiments/tiger_run.json (Julia, budget=500, rho_Z=0.1).
-# Backup event #1256 at the root (h1) for action=3 (listen, Julia 1-based).
-# All ids 1-based as emitted by Julia; converted to 0-based at use site.
-JULIA_REFERENCE = {
-    "S_in_julia":      [2, 1],
-    "Z_in_julia":      [2, 1],
-    "belief_julia":    [0.494, 0.506],   # aligned with S_in_julia
-    "V_children_julia": [-9.778479443338822, -3.92251917814627],  # aligned with Z_in_julia
-    "action_julia":    3,                # listen (1-based)
-    "rho_T":           0.0,
-    "rho_Z":           0.1,
-    "julia_Q":         -8.118702290888365,
-    "particles_total": 500,
-}
-
-
-def check_julia_cross() -> int:
-    ref = JULIA_REFERENCE
-    tiger = make_tiger_pomdp(0.85)
-    unc = uniform_uncertainty(tiger.n_states,
-                              tiger.n_actions,
-                              ref["rho_T"],
-                              ref["rho_Z"],
-                              TVDistance()
-                              )
-
-    # Build particles whose empirical distribution matches Julia belief.
-    n_total = ref["particles_total"]
-    particles: list[int] = []
-    for js, b in zip(ref["S_in_julia"], ref["belief_julia"]):
-        py_state = js - 1
-        particles.extend([py_state] * round(b * n_total))
-
-    counter = NodeIdCounter()
-    h = HistoryNode(counter.next_id(), depth=0)
-    h.particles = particles
-    h.S_in = set(particles)
-
-    action_node = ActionNode(counter.next_id())
-    action_node.Z_in = {jz - 1 for jz in ref["Z_in_julia"]}
-    action_node.children = {}
-    for jz, v in zip(ref["Z_in_julia"], ref["V_children_julia"]):
-        child = HistoryNode(counter.next_id(), depth=1)
-        child.V_robust = v
-        action_node.children[jz - 1] = child
-
-    Q, _ = compute_robust_q(h, a=ref["action_julia"] - 1, action_node=action_node,
-                            model=tiger, uncertainty=unc,
-                            logger=None, backup_counter=0,
-                            previous_Q_robust=0.0
-                            )
-
-    diff = abs(Q - ref["julia_Q"])
-    status = "OK" if diff <= 1e-2 else "WARN"
-    print(f"[layer 3] soft Julia cross-check: {status} "
-          f"(Q_python={Q:.6f}, julia_Q={ref['julia_Q']:.6f}, diff={diff:.4g})")
-    return 0 if diff <= 1e-2 else 1
-
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 def main() -> None:
     print("=" * 60)
-    print("Phase 4 verification — §1.3 #3: robust backup correctness")
+    print("Robust backup correctness")
     print("=" * 60)
 
     print("\nLayer 1: hand-trivial synthesized backup")
@@ -211,18 +142,13 @@ def main() -> None:
     print("-" * 60)
     f2 = check_tiger_sanity()
 
-    print("\nLayer 3: soft Julia cross-check")
-    print("-" * 60)
-    f3 = check_julia_cross()
-
     print("\n" + "=" * 60)
     if f1 == 0 and f2 == 0:
-        layer3_note = "" if f3 == 0 else " (layer 3 WARNED — soft, not strict)"
-        print(f"Phase 4 GATE §1.3 #3: PASS{layer3_note}")
+        print("Robust backup correctness: PASS")
         print("=" * 60)
     else:
-        print(f"Phase 4 GATE §1.3 #3: FAIL "
-              f"(layer 1={f1}, layer 2={f2}, layer 3={f3})")
+        print(f"Robust backup correctness: FAIL "
+              f"(layer 1={f1}, layer 2={f2})")
         print("=" * 60)
         sys.exit(1)
 

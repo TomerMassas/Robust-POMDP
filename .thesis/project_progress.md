@@ -6,6 +6,45 @@ originSessionId: 60e505b2-035f-4545-ad11-905ae1961031
 ---
 ## Session Log
 
+### 2026-05-07 — Session 11: Memory restructure + viz reimplemented + Julia legacy purged
+- **Memory restructure.** Adopted dinov3-style indirection: profile-layer
+  `MEMORY.md` is now a 7-line pointer; the canonical index lives at
+  `.thesis/MEMORY.md` and lists every memory file to load. CLAUDE.md
+  required-reading section trimmed to a pointer at that index. The
+  `/session-start` command now reads the in-repo index and walks its entries
+  (single source of truth — no more drift between command body and memory list).
+  `todos.md` added to the index as always-load.
+- **`/session-start` step 4 amended.** Now surfaces candidate next-steps from
+  `project_progress.md`'s most-recent "Next session" line, `todos.md`, and
+  roadmap priorities before asking focus. Today's session opened without
+  surfacing them — that's the gap that triggered this change.
+- **Viz plots reimplemented (todos.md #2 → done).** `viz/plot_results.py`
+  rewritten from the lost commit `253b292`: `plot_e1_violin`, `plot_e1_actions`,
+  `plot_e2_line`, `plot_e2_violins`, `plot_e2_actions`, wrappers, and
+  `plot_e3_placeholder`. `read_latest()` now disambiguates summary vs raw via
+  `raw: bool = False`. Output directories computed inside each function rather
+  than at module top, so `--results-dir` overrides take effect. Default
+  `RESULTS_DIR` repointed at `experiments/tiger/results/` (per-scenario layout).
+- **Julia legacy + descendants purged.** Deleted: 15 `.jl` files in `src/`,
+  `src/RobustOnlinePOMDP.jl`, the directory tree (`src/core/`, `src/debug/`,
+  `src/evaluation/`, `src/solvers/`, `src/uncertainty/`, untracked empty
+  `src/bounds/`); `Project.toml` + `Manifest.toml`; Julia entrypoints at
+  `experiments/` root + `experiments/tiger_run.json`; legacy `experiments/results/`
+  Julia data dir; `experiments/tiger/_capture_lp_reference.jl` +
+  `lp_reference.json` + `verify_lp_correctness.py` (the Julia LP cross-check
+  trio); migration smoke scripts `_smoke_phase1.py` / `_smoke_phase3.py`;
+  `docs/julia_cheatsheet.md`. Layer 3 of `verify_robust_backup.py` (the
+  hardcoded-Julia-Q cross-check) stripped out; layers 1 + 2 retained.
+- **Memory rule saved.** New `feedback_temp_files.md`: auto-delete tmp/smoke
+  scripts during cleanups, don't ask per file. Triggered by Tomer's "you
+  should auto delete them if it is just a tmp file" today.
+- **Branch cleanup.** Stale `claude/quizzical-mendel-48380d` migration branch
+  deleted (already merged into main).
+- **No commit yet** — all work staged for one cleanup commit; Tomer drives.
+- **Next session:** verify viz plotter on E1 data (one PNG should land at
+  `experiments/tiger/results/figures/E1/violin_returns.png`, one at
+  `action_breakdown.png`); then run E2 and inspect.
+
 ### 2026-04-12 — Session 1: Project Setup
 - Created Claude memory directory with user profile, working guidelines, project context, roadmap, and progress log.
 - Read paper draft to extract project context and key mathematical entities.

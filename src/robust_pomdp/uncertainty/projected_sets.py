@@ -17,21 +17,19 @@ Used by both:
   - SolveTransitionLP:  p_o = P_T^o(s'|s,a) on S_in, c = w(s')
 
 
-PERFORMANCE NOTE — LP reuse fix
--------------------------------
-The original Julia version rebuilt the entire JuMP model on every call. With
-~200K LP solves per E2 config and ~6 s/episode at rho>0 (Session 9 measurement),
-this was the bottleneck.
+PERFORMANCE NOTE — LP reuse
+---------------------------
+A naive implementation rebuilds the whole LP on every call. At ~200K LP
+solves per E2 config that was the dominant cost (~6 s/episode at rho>0).
 
-The Python port rewrites this around a persistent `Highs` instance: __init__
-constructs the LP structure once; solve() updates only the changing parts
-(some row bounds, the objective coefficients) and re-solves. The LP topology
-(variables, sparsity pattern, the structural mass-balance equality) is fixed
-forever.
+This implementation keeps a persistent `Highs` instance: __init__ builds the
+LP structure once; solve() updates only the changing parts (some row bounds,
+the objective coefficients) and re-solves. The LP topology (variables,
+sparsity pattern, the mass-balance equality) is fixed forever.
 
-Architectural note: the public API is the `ProjectedTVBall.solve` method.
-Callers don't see highspy. If at larger scale highspy becomes a bottleneck,
-swap in Gurobi or OR-Tools by reimplementing this one class — see plan §2.1.
+The public API is the `ProjectedTVBall.solve` method — callers don't see
+highspy. If highspy becomes a bottleneck at larger scale, swap in Gurobi or
+OR-Tools by reimplementing this one class.
 """
 
 from __future__ import annotations

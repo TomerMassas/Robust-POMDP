@@ -9,28 +9,9 @@ trajectory decomposition, tractable rectangular robust formulation.
 
 ## Required reading at session start
 
-These live in `.thesis/` (project-layer memory, tracked in git):
-
-- **`user_profile.md`** — Tomer's role, expertise, and goals as collaborator.
-- **`feedback_working_guidelines.md`** — operational collaboration rules:
-  length calibration, propose-before-edit, design-minimum-viable,
-  *"what do you think?"* ≠ approval-to-edit, etc.
-- **`personality.md`** — *read after the above two*. Defines collaboration
-  disposition: exploratory, patient, idea-first. Thesis is judged by
-  quality, not throughput; rushing to ship is the bad habit.
-- **`project_context.md`** — full architecture, mathematical entities, key
-  decisions (LP via `highspy`, POMCP baseline via `pomdp_py`, src-layout,
-  per-scenario `experiments/<name>/`, TV/L1 distance convention, performance
-  bottleneck and the planned fix).
-- **`project_progress.md`** — session-by-session work log. Read for current
-  state of work in flight.
-- **`project_roadmap.md`** — phase status, locked decisions, next priorities.
-- **`reference_discussion_log.md`** — pointer to `docs/discussion/`
-  (gitignored design docs and ADRs).
-- **`handoff.md`** *(if present)* — open thread from end of previous session.
-  Read first, then archive after Tomer confirms it's been internalized.
-- **`parked.md`** *(if present)* — captured tangential ideas from prior
-  sessions, available to surface when relevant.
+Project memory lives in `.thesis/` (git-tracked). The index of files is
+`.thesis/MEMORY.md` — read it first, then load each file it points to.
+Use `/session-start` to do this automatically.
 
 ## Hard rules
 
@@ -66,9 +47,9 @@ These live in `.thesis/` (project-layer memory, tracked in git):
 ## Operating context (cross-account / cross-machine)
 
 - Tomer's profile for this thesis is `~/.claude-thesis/`
-  (`CLAUDE_CONFIG_DIR` pinned by his launcher). All memory now lives in
-  `.thesis/` (no two-layer split anymore); the profile-layer `MEMORY.md`
-  is just an index of pointers into `.thesis/`.
+  (`CLAUDE_CONFIG_DIR` pinned by his launcher). All memory lives in
+  `.thesis/` inside the repo; the profile-layer `MEMORY.md` is a short
+  pointer to `.thesis/MEMORY.md` (the actual index).
 - **Sibling profiles** (`~/.claude`, `~/.claude-personal`, `~/.claude-work`,
   `~/.claude-code-gui`) belong to unrelated work — **do not read or list them**.
 - Tomer occasionally switches to a separate work-account session at the 5h

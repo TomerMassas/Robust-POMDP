@@ -2,11 +2,6 @@
 
 Re-exports the public surface from subpackages so callers can write:
     from robust_pomdp import TabularPOMDP, robust_pomcp_plan, ...
-
-The exact set mirrors the original Julia `RobustOnlinePOMDP.jl` exports,
-expanded incrementally as each migration phase lands. This file currently
-covers Phase 1 (core + uncertainty types). Solver, debug, and evaluation
-exports land in Phases 2-7.
 """
 
 from robust_pomdp.core.pomdp_types import TabularPOMDP

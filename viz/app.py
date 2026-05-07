@@ -1,8 +1,8 @@
 """
 Robust POMCP Explorer — Event Replay UI.
 
-Loads a chronological event log produced by the Julia solver
-(see experiments/tiger_test.jl) and replays the algorithm step by step.
+Loads a chronological event log produced by the solver
+(see experiments/tiger/tiger_test.py) and replays the algorithm step by step.
 
 Usage:
     cd viz
