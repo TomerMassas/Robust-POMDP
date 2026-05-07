@@ -40,10 +40,20 @@ originSessionId: 60e505b2-035f-4545-ad11-905ae1961031
   should auto delete them if it is just a tmp file" today.
 - **Branch cleanup.** Stale `claude/quizzical-mendel-48380d` migration branch
   deleted (already merged into main).
-- **No commit yet** — all work staged for one cleanup commit; Tomer drives.
-- **Next session:** verify viz plotter on E1 data (one PNG should land at
-  `experiments/tiger/results/figures/E1/violin_returns.png`, one at
-  `action_breakdown.png`); then run E2 and inspect.
+- **Cleanup committed + pushed** as `ff1aaaf` (42 files changed, +448/−192880).
+  GitHub `main` now matches local: Python-only repo.
+- **Paper auto-load wired.** Added `.thesis/reference_paper.md` (small wrapper
+  pointing at `Robust_Online_POMDP paper.pdf`, 11 pages); registered in
+  `.thesis/MEMORY.md` under a new "Theory reference" group; updated
+  `/session-start` step 1 to Read the PDF after the memory files. Two repo
+  changes uncommitted at session end (MEMORY.md modified + reference_paper.md
+  new); session-start command lives outside the repo.
+- **Next session:** start the actual research work — run viz plotter on E1
+  to verify it lands `violin_returns.png` + `action_breakdown.png` in
+  `experiments/tiger/results/figures/E1/`, then move into E2 (ρ_Z sweep on
+  nominal Tiger). Beyond E2: E3 is the headline experiment (perturbed world).
+  Tomer's framing: "actually start working on the experiments algorithms and
+  all the real stuff" — infrastructure plumbing is done; this was the runway.
 
 ### 2026-04-12 — Session 1: Project Setup
 - Created Claude memory directory with user profile, working guidelines, project context, roadmap, and progress log.

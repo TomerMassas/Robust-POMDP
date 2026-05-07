@@ -15,6 +15,9 @@
 - [todos.md](todos.md) — Deferred workflow / Claude-system todos (separate from research roadmap)
 - [reference_discussion_log.md](reference_discussion_log.md) — Pointer to `docs/discussion/` (gitignored design docs)
 
+## Theory reference
+- [reference_paper.md](reference_paper.md) — Paper PDF (11 pages); auto-loaded at session start
+
 ## Session-bridging (may not exist)
 - `handoff.md` — open thread from end of previous session; archive after Tomer confirms
 - `parked.md` — captured tangential ideas from prior sessions
