@@ -1,2 +1,0 @@
-experiment_id,date,description,planner_label,rho_T,rho_Z,ucb_mode,budget,sims_per_backup,horizon,eta_world_obs,eta_world_trans,n_trials,seed_base,mean_return,std_return,sem_return,mean_runtime_s,n_correct_open,n_wrong_open,n_listen_actions
-E1,2026-05-03,smoke,robust_pomcp,0.0,0.0,nominal,20,5,5,0.0,0.0,2,1,-76.5,7.7781745930520225,5.499999999999999,0.0135711501352489,5,2,3

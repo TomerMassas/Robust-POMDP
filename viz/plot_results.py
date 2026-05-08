@@ -1,14 +1,13 @@
 """
 Plot experiment results from CSV files.
 
-Pure CSV consumer — no Julia dependency. Reads CSVs from
-`experiments/results/` and writes PNG figures to
-`experiments/results/figures/`.
+Pure CSV consumer. Reads CSVs from `experiments/tiger/results/<Ek>/csv/`
+and writes PNG figures to `experiments/tiger/results/<Ek>/figures/`.
 
 Usage:
-    cd viz
-    python plot_results.py                       # all figures we know how to make
-    python plot_results.py --experiments E2,E3   # only the listed experiments
+    python viz/plot_results.py                          # all figures we know how to make
+    python viz/plot_results.py --experiments E1         # just E1
+    python viz/plot_results.py --experiments E1,E3      # E1 and E3
 
 Adding a new plot:
 - Add a function `plot_eK(...)` below
@@ -33,7 +32,6 @@ import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RESULTS_DIR = REPO_ROOT / "experiments" / "tiger" / "results"
-FIGURES_DIR = RESULTS_DIR / "figures"
 
 
 # ---------------------------------------------------------------------------
@@ -41,8 +39,11 @@ FIGURES_DIR = RESULTS_DIR / "figures"
 # ---------------------------------------------------------------------------
 
 def find_csvs(experiment_id: str) -> list[Path]:
-    """Return all CSVs whose filename starts with `{experiment_id}_`."""
-    return sorted(RESULTS_DIR.glob(f"{experiment_id}_*.csv"))
+    """Return all CSVs in `results/<experiment_id>/csv/`."""
+    csv_dir = RESULTS_DIR / experiment_id / "csv"
+    if not csv_dir.is_dir():
+        return []
+    return sorted(csv_dir.glob("*.csv"))
 
 
 def read_latest(experiment_id: str,
@@ -115,7 +116,7 @@ def plot_e1_violin():
     ax.grid(axis="y", linestyle=":", alpha=0.5)
     fig.tight_layout()
 
-    out_dir = FIGURES_DIR / "E1"
+    out_dir = RESULTS_DIR / "E1" / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "violin_returns.png"
     fig.savefig(out, dpi=150)
@@ -167,7 +168,7 @@ def plot_e1_actions():
     ax.grid(axis="y", linestyle=":", alpha=0.5)
     fig.tight_layout()
 
-    out_dir = FIGURES_DIR / "E1"
+    out_dir = RESULTS_DIR / "E1" / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "action_breakdown.png"
     fig.savefig(out, dpi=150)
@@ -204,7 +205,7 @@ def plot_e2_line():
     ax.grid(linestyle=":", alpha=0.5)
     fig.tight_layout()
 
-    out_dir = FIGURES_DIR / "E2"
+    out_dir = RESULTS_DIR / "E2" / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "line_return_vs_rho.png"
     fig.savefig(out, dpi=150)
@@ -257,7 +258,7 @@ def plot_e2_violins():
     ax.grid(axis="y", linestyle=":", alpha=0.5)
     fig.tight_layout()
 
-    out_dir = FIGURES_DIR / "E2"
+    out_dir = RESULTS_DIR / "E2" / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "violin_returns.png"
     fig.savefig(out, dpi=150)
@@ -311,7 +312,7 @@ def plot_e2_actions():
     ax.grid(axis="y", linestyle=":", alpha=0.5)
     fig.tight_layout()
 
-    out_dir = FIGURES_DIR / "E2"
+    out_dir = RESULTS_DIR / "E2" / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "action_breakdown.png"
     fig.savefig(out, dpi=150)
@@ -325,9 +326,73 @@ def plot_e2():
     plot_e2_actions()
 
 
-def plot_e3_placeholder():
-    """E3 plots not yet defined — will be planned separately."""
-    pass
+def plot_e3_line():
+    """E3 — Fan of curves: mean return vs eta, per rho_Z + vanilla baseline.
+
+    Reads `results/E3/csv/E3_*.csv` produced by the 2D rho_Z x eta sweep.
+    Each robust_pomcp curve only spans its own eta range (eta in [0, rho_Z/2]),
+    so the curves fan out — wider rho_Z means longer eta range. The vanilla
+    BasicPOMCP curve spans the union of all etas as a single dashed line.
+    """
+    df = read_latest("E3")
+    if df is None:
+        print("E3 line: no summary CSV found, skipping.")
+        return
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    robust_df = df[df["planner_label"] == "robust_pomcp"]
+    rho_z_values = sorted(robust_df["rho_Z"].unique())
+    cmap = plt.get_cmap("viridis")
+    n_rho = max(1, len(rho_z_values))
+    for i, rho_z in enumerate(rho_z_values):
+        sub = robust_df[robust_df["rho_Z"] == rho_z].sort_values("eta_world_obs")
+        if sub.empty:
+            continue
+        color = cmap(i / max(1, n_rho - 1)) if n_rho > 1 else cmap(0.5)
+        ax.errorbar(sub["eta_world_obs"],
+                    sub["mean_return"],
+                    yerr=sub["sem_return"],
+                    marker="o",
+                    capsize=4,
+                    color=color,
+                    label=f"robust ρ_Z={rho_z:g}",
+                    linewidth=1.5,
+                    linestyle="-" if len(sub) > 1 else "None"
+                    )
+
+    vanilla_df = df[df["planner_label"] == "BasicPOMCP"].sort_values("eta_world_obs")
+    if not vanilla_df.empty:
+        ax.errorbar(vanilla_df["eta_world_obs"],
+                    vanilla_df["mean_return"],
+                    yerr=vanilla_df["sem_return"],
+                    marker="s",
+                    capsize=4,
+                    color="black",
+                    linestyle="--",
+                    label="BasicPOMCP (vanilla)",
+                    linewidth=1.5
+                    )
+
+    ax.set_xlabel("η (world perturbation magnitude)")
+    ax.set_ylabel("Mean episodic return")
+    n = int(df["n_trials"].iloc[0])
+    ax.set_title(f"E3 — Robust (per ρ_Z) vs vanilla on perturbed Tiger (n={n} per config)")
+    ax.axhline(0, color="black", lw=0.5)
+    ax.grid(linestyle=":", alpha=0.5)
+    ax.legend(loc="best", fontsize=9)
+    fig.tight_layout()
+
+    out_dir = RESULTS_DIR / "E3" / "figures"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / "line_return_vs_eta_per_rho.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"  -> {out.relative_to(REPO_ROOT)}")
+
+
+def plot_e3():
+    plot_e3_line()
 
 
 def plot_e4():
@@ -357,7 +422,9 @@ def plot_e4():
     ax.axhline(0, color="black", lw=0.5)
     ax.legend()
     fig.tight_layout()
-    out = FIGURES_DIR / "E4_eta_sweep_paired.png"
+    out_dir = RESULTS_DIR / "E4" / "figures"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / "E4_eta_sweep_paired.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     print(f"  -> {out.relative_to(REPO_ROOT)}")
@@ -396,7 +463,9 @@ def plot_e5():
         ax2.plot(x, df["mean_runtime_s"], marker="s", color="#dd8452", label="runtime [s]")
         ax2.set_ylabel("Mean planner runtime [s]", color="#dd8452")
     fig.tight_layout()
-    out = FIGURES_DIR / "E5_simsperbackup_sweep.png"
+    out_dir = RESULTS_DIR / "E5" / "figures"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / "E5_simsperbackup_sweep.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     print(f"  -> {out.relative_to(REPO_ROOT)}")
@@ -436,7 +505,9 @@ def plot_e6():
     ax.axhline(0, color="black", lw=0.5)
     ax.legend()
     fig.tight_layout()
-    out = FIGURES_DIR / "E6_ucbmode_compare.png"
+    out_dir = RESULTS_DIR / "E6" / "figures"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / "E6_ucbmode_compare.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     print(f"  -> {out.relative_to(REPO_ROOT)}")
@@ -471,7 +542,9 @@ def plot_e7():
     ax.axhline(0, color="black", lw=0.5)
     ax.legend()
     fig.tight_layout()
-    out = FIGURES_DIR / "E7_horizon_sweep.png"
+    out_dir = RESULTS_DIR / "E7" / "figures"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / "E7_horizon_sweep.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     print(f"  -> {out.relative_to(REPO_ROOT)}")
@@ -484,7 +557,7 @@ def plot_e7():
 PLOTTERS = {
     "E1": plot_e1,
     "E2": plot_e2,
-    "E3": plot_e3_placeholder,  # plots not yet defined
+    "E3": plot_e3,
     "E4": plot_e4,
     "E5": plot_e5,
     "E6": plot_e6,
@@ -493,7 +566,7 @@ PLOTTERS = {
 
 
 def main():
-    global RESULTS_DIR, FIGURES_DIR
+    global RESULTS_DIR
     parser = argparse.ArgumentParser()
     parser.add_argument("--experiments", type=str, default=None,
                         help="Comma-separated experiment ids (e.g. E1,E3). Default: all."
@@ -506,9 +579,6 @@ def main():
 
     if args.results_dir is not None:
         RESULTS_DIR = args.results_dir.resolve()
-        FIGURES_DIR = RESULTS_DIR / "figures"
-
-    FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
     if args.experiments:
         wanted = {e.strip() for e in args.experiments.split(",")}

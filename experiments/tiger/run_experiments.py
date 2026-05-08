@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 TODAY = datetime.date.today().isoformat()  # "yyyy-mm-dd"
 TIGER = make_tiger_pomdp(listen_accuracy=0.85)
 
-N_TRIALS_DEFAULT = 10
+N_TRIALS_DEFAULT = 100
 BUDGET_DEFAULT = 100
 HORIZON_DEFAULT = 5
 
@@ -74,6 +74,24 @@ def experiment_E1() -> None:
 # ---------------------------------------------------------------------------
 
 def experiment_E2() -> None:
+    """rho_Z sweep on the nominal world (no model mismatch).
+
+    Setup:
+        - World == planner's nominal Tiger (eta_obs = eta_trans = 0).
+          Each episode runs against an unperturbed world; the planner's
+          beliefs are correctly calibrated to reality.
+        - Robust planner with rho_T = 0, rho_Z swept over
+          {0, 0.05, 0.1, 0.2, 0.3}.
+
+    What this tests — the "pessimism tax": with no real uncertainty to
+    hedge against, any rho_Z > 0 is the planner defending against an
+    imagined threat. Headline read = slope of mean_return vs rho_Z
+    (expected: negative — pessimism hurts when reality is benign).
+
+    Pairs with E3, which runs the same rho_Z grid on a perturbed world
+    (eta_obs = 0.20). Together they tell the full robustness story:
+    E2 = cost of pessimism, E3 = benefit of pessimism.
+    """
     cfgs = [
         ExperimentConfig(experiment_id="E2",
                          date=TODAY,
@@ -94,27 +112,78 @@ def experiment_E2() -> None:
 
 
 # ---------------------------------------------------------------------------
-# E3 — rho_Z sweep, perturbed world (eta=0.20)
+# E3 — rho_Z grid x per-group eta sweep on perturbed world, with vanilla baseline
 # ---------------------------------------------------------------------------
 
 def experiment_E3() -> None:
-    cfgs = [
-        ExperimentConfig(experiment_id="E3",
-                         date=TODAY,
-                         description="rho_z_sweep_perturbed_eta0.20",
-                         planner_label="robust_pomcp",
-                         rho_Z=rho_z,
-                         ucb_mode="nominal",
-                         eta_world_obs=0.20,
-                         n_trials=N_TRIALS_DEFAULT,
-                         budget=BUDGET_DEFAULT,
-                         sims_per_backup=5,
-                         horizon=HORIZON_DEFAULT
-                         )
-        for rho_z in (0.0, 0.05, 0.1, 0.2, 0.3)
-    ]
-    run_sweep("E3", TODAY, "rho_z_sweep_perturbed_eta0.20", cfgs, TIGER,
-              index_oneliner="rho_Z sweep (0..0.3) on eta=0.20 perturbed Tiger (headline)"
+    """rho_Z grid x per-group eta sweep on perturbed worlds, with vanilla baseline.
+
+    Setup:
+        - rho_Z grid: {0.0, 0.05, 0.1, 0.2, 0.3} (5 values).
+        - For each rho_Z, eta sweeps 5 evenly-spaced values in [0, rho_Z/2].
+          (rho_Z=0 degenerates to a single eta=0 point.) The eta range is
+          chosen so the perturbed world's TV distance from nominal walks
+          from the center of the planner's hedge ball (eta=0, no mismatch)
+          to the boundary (eta=rho_Z/2, where 2*eta = rho_Z = ball radius).
+          Stays in the over- to fully-calibrated regime - never under.
+        - At each (rho_Z, eta) pair: one robust_pomcp config.
+        - At each distinct eta value across all groups: one BasicPOMCP
+          baseline config (BasicPOMCP doesn't read rho_Z; same eta gives
+          identical output regardless of rho_Z grouping).
+
+    What this tests:
+        Robust vs vanilla under increasing model mismatch, with the planner's
+        hedge always covering the actual perturbation. Expected reads:
+        (1) at fixed rho_Z, robust - vanilla gap grows monotonically with
+            eta (vanilla degrades faster than robust);
+        (2) larger-rho_Z curves reach further-perturbed worlds at their
+            calibrated edge, so the gap at each curve's rightmost point
+            grows with rho_Z.
+
+    Total: 21 robust + 11 vanilla = 32 configs.
+    """
+    etas_per_rho_z: dict[float, list[float]] = {
+        0.0:  [0.0],
+        0.05: [0.0, 0.00625, 0.0125, 0.01875, 0.025],
+        0.1:  [0.0, 0.0125, 0.025, 0.0375, 0.05],
+        0.2:  [0.0, 0.025, 0.05, 0.075, 0.1],
+        0.3:  [0.0, 0.0375, 0.075, 0.1125, 0.15],
+    }
+
+    cfgs: list[ExperimentConfig] = []
+
+    # Robust configs: one per (rho_Z, eta) pair.
+    for rho_z, etas in etas_per_rho_z.items():
+        for eta in etas:
+            cfgs.append(ExperimentConfig(experiment_id="E3",
+                                         date=TODAY,
+                                         description="rho_z_eta_sweep",
+                                         planner_label="robust_pomcp",
+                                         rho_Z=rho_z,
+                                         ucb_mode="nominal",
+                                         eta_world_obs=eta,
+                                         n_trials=N_TRIALS_DEFAULT,
+                                         budget=BUDGET_DEFAULT,
+                                         sims_per_backup=5,
+                                         horizon=HORIZON_DEFAULT
+                                         ))
+
+    # Vanilla configs: one per distinct eta in the union (BasicPOMCP doesn't
+    # read rho_Z, so re-running per group would just produce identical output).
+    distinct_etas = sorted({eta for etas in etas_per_rho_z.values() for eta in etas})
+    for eta in distinct_etas:
+        cfgs.append(ExperimentConfig(experiment_id="E3",
+                                     date=TODAY,
+                                     description="rho_z_eta_sweep",
+                                     planner_label="BasicPOMCP",
+                                     eta_world_obs=eta,
+                                     n_trials=N_TRIALS_DEFAULT,
+                                     budget=BUDGET_DEFAULT,
+                                     horizon=HORIZON_DEFAULT
+                                     ))
+
+    run_sweep("E3", TODAY, "rho_z_eta_sweep", cfgs, TIGER,
+              index_oneliner="rho_Z grid x per-group eta sweep on perturbed Tiger; vanilla baseline included"
               )
 
 
@@ -252,10 +321,7 @@ def main() -> None:
                         )
     args = parser.parse_args()
 
-    selected = (
-        {s.strip() for s in args.only.split(",")} if args.only is not None
-        else None
-    )
+    selected = ({s.strip() for s in args.only.split(",")} if args.only is not None else None)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 

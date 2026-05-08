@@ -289,24 +289,26 @@ def sweep_raw_filename(experiment_id: str, date: str, description: str) -> str:
     return f"{experiment_id}_{date}_{description}_raw.csv"
 
 
-def append_to_index(filename: str,
+def append_to_index(relative_path: str,
                     oneliner: str,
                     *,
                     results_dir: Path = DEFAULT_RESULTS_DIR
                     ) -> None:
     """Append a one-line description for this sweep to INDEX.md.
 
-    Creates the file if needed. Idempotent: skips if filename already listed.
+    `relative_path` is the path of the summary CSV relative to `results_dir`
+    (e.g. ``"E1/csv/E1_2026-05-03_baseline_*.csv"``). It is both the link
+    target and the idempotency key. Creates INDEX.md if absent.
     """
     results_dir.mkdir(parents=True, exist_ok=True)
     index_path = results_dir / "INDEX.md"
     if not index_path.is_file():
         index_path.write_text("# Experiment results index\n\n")
     existing = index_path.read_text()
-    if filename in existing:
+    if relative_path in existing:
         return
     with index_path.open("a") as f:
-        f.write(f"- `{filename}` — {oneliner}\n")
+        f.write(f"- `{relative_path}` — {oneliner}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -342,13 +344,14 @@ def run_sweep(experiment_id: str,
     summary_df = pd.DataFrame(summary_rows, columns=SUMMARY_COLUMNS)
     raw_df = pd.DataFrame(raw_rows, columns=RAW_COLUMNS)
 
-    results_dir.mkdir(parents=True, exist_ok=True)
-    summary_path = results_dir / sweep_filename(experiment_id, date, description)
-    raw_path = results_dir / sweep_raw_filename(experiment_id, date, description)
+    csv_dir = results_dir / experiment_id / "csv"
+    csv_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = csv_dir / sweep_filename(experiment_id, date, description)
+    raw_path = csv_dir / sweep_raw_filename(experiment_id, date, description)
     summary_df.to_csv(summary_path, index=False)
     raw_df.to_csv(raw_path, index=False)
 
-    append_to_index(summary_path.name,
+    append_to_index(f"{experiment_id}/csv/{summary_path.name}",
                     index_oneliner if index_oneliner is not None else description,
                     results_dir=results_dir
                     )

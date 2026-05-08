@@ -411,10 +411,7 @@ def compute_robust_q(h: HistoryNode,
 
     belief = compute_belief(h.particles, S_in)
 
-    V_children = [
-        action_node.children[z].V_robust if z in action_node.children else 0.0
-        for z in Z_in
-    ]
+    V_children = [action_node.children[z].V_robust if z in action_node.children else 0.0 for z in Z_in]
 
     obs_lp_results: list[ObsLPResult] = []
     trans_lp_results: list[TransLPResult] = []
@@ -446,9 +443,7 @@ def compute_robust_q(h: HistoryNode,
     # Step 2: transition LP per s.
     Q_val = 0.0
     for i, s in enumerate(S_in):
-        p_nominal_trans = [
-            model.transition_prob(s, a, s_next) for s_next in S_in
-        ]
+        p_nominal_trans = [model.transition_prob(s, a, s_next) for s_next in S_in]
         rho_t = uncertainty.transition_radius(s, a)
         sigma, optimal_p = lp_trans.solve(p_nominal_trans, rho_t, w.tolist())
         Q_val += belief[i] * (model.reward(s, a) + sigma)

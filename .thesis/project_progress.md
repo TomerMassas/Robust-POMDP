@@ -6,6 +6,86 @@ originSessionId: 60e505b2-035f-4545-ad11-905ae1961031
 ---
 ## Session Log
 
+### 2026-05-08 — Session 13: results dir restructure + E3 redesigned as 2D rho_Z × eta sweep
+- **Walked through `compute_robust_q`** (lines 428–441 — Step 1 obs LP).
+  Wrote down model-structure semantics, projected TV-ball conventions
+  (`‖q-p_o‖₁ + |Σq - m_o| ≤ ρ`, each unit moved costs 2 TV). Set up
+  calibration math for later in the session.
+- **Results directory restructured** into per-experiment folders:
+  `results/<Ek>/csv/*.csv` and `results/<Ek>/figures/*.png`. Touched
+  `sweep.py` (`run_sweep` writes nested; `append_to_index` arg renamed
+  `filename → relative_path`) and `viz/plot_results.py` (`find_csvs`,
+  every plot function, `FIGURES_DIR` removed, usage docstring rewritten).
+  Migrated E1 CSVs into the new layout. Deleted 8 stale smoke/perf
+  CSVs from earlier development. INDEX.md mojibake (`�` from earlier
+  encoding-mismatched writes) replaced with proper em-dashes.
+- **E1 at n=100 confirmed equivalence.** BasicPOMCP −40.42 vs
+  robust(ρ=0) −45.92, gap 5.5 ≈ 0.5σ — sampling noise. Bimodal violin
+  structure now legible (top bulge = successful listen-then-open;
+  second bulge ~ −85 = single-wrong-open episodes).
+- **Stale editable install** was masking `import robust_pomdp` — old
+  `.pth` pointed at the deleted Julia migration worktree
+  (`.claude/worktrees/quizzical-mendel-48380d`). Tomer reinstalled with
+  `pip install -e .` from repo root.
+- **E2 docstring added** describing the pessimism-tax framing. Result at
+  n=100/budget=100 is essentially flat (Session 9's surprising upward
+  slope did not replicate).
+- **Calibration math written down.** Codebase TV is `‖P-Q‖₁` (no ½).
+  Tiger's symmetric reduce-accuracy perturbation gives row-TV = 2·η, so
+  the calibrated hedge for an η-perturbation is `ρ_Z = 2·η`. Original
+  E3 grid (ρ_Z up to 0.30 at η=0.20) was systematically
+  under-calibrated.
+- **E3 redesigned as 2D ρ_Z × η grid.** Replaced the original
+  single-η=0.20 sweep. For each ρ_Z in {0.0, 0.05, 0.1, 0.2, 0.3},
+  sweep 5 evenly-spaced η in `[0, ρ_Z/2]` (over- to fully-calibrated;
+  truth always inside ball). Plus BasicPOMCP at each distinct η
+  (deduped — vanilla doesn't read ρ_Z): **21 robust + 11 vanilla = 32
+  configs.** Tomer ran at n=100/budget=100; CSV at
+  `E3/csv/E3_2026-05-08_rho_z_eta_sweep.csv`. Headline plot is
+  fan-of-curves (x=η, one curve per ρ_Z, vanilla as dashed spanning
+  reference). Removed `plot_e3_violins`, `plot_e3_actions`,
+  `plot_e2_e3_crossover`, `plot_wrong_open_rate_e2_vs_e3` — they don't
+  fit the 2D structure cleanly. Old single-η CSVs and 5 stale PNGs
+  deleted.
+- **Two pushbacks worth flagging.** (1) After Tomer's "csv + figures
+  subdirs" amendment I jumped to parallel tool calls without restating
+  the plan; he intercepted, wanted explicit plan-then-go even on small
+  mods. (2) The 2× calibration factor — he initially proposed
+  η ∈ [0, ρ_Z]; we untangled that this would probe up to 2× ball-radius
+  in TV-distance terms, settled on η ∈ [0, ρ_Z/2].
+- **Parked**: show in the future that the paper's projection novelty
+  enables a tractable online solution + display runtime performance.
+- **Next session:** open the new E3 fan-of-curves plot, discuss what
+  the data says. If clean → document the robust-vs-vanilla headline.
+  If noisy → bump budget to 500. Beyond E3: E4 currently uses
+  `robust_pomcp(ρ=0)` as the implicit-vanilla baseline (Session-8
+  trick); update to BasicPOMCP for consistency with E3. Flag for
+  thesis writeup: the "ρ_Z in this codebase is 2× standard TV radius"
+  convention is confusion-prone.
+
+### 2026-05-08 — Session 12: `verify_robust_backup` replaced with a real projected-robust test
+- Tomer flagged the existing two-layer `verify_robust_backup.py` had blind
+  spots: Layer 1 used `rho=0` (uncertainty set degenerates to a singleton,
+  robust math is not exercised) and Layer 2 used Tiger with `Z_in = Z` and
+  `S_in = S` (projection is not exercised either). Both layers passed even
+  though they only validated the nominal Bellman backup.
+- Replaced both layers with a single check on a synthetic 4-state, 2-action,
+  4-obs POMDP. `S_in = {0, 1}`, `Z_in = {0, 1}` (strict subsets);
+  `rho_T = rho_Z = 0.2` uniform; `belief = [0.6, 0.4]`; `V_children = [+10, -20]`
+  (mixed signs to force a real LP trade-off). Step 1 LP optimum is reached via
+  within-`Z_in` shift; Step 2 LP optimum involves drawing mass from `S_out`
+  into `S_in` — both LP modes exercised in one test.
+- Hand-derived `Q_robust = -5.12` (intermediate `w = [-5, -11]`,
+  `σ = [-7, -5.8]`). Full derivation lives in
+  `experiments/tiger/verify_robust_backup_derivation.md` — matrices, per-LP
+  "compare moves" tables (per-TV-unit gain for each adversary strategy), and
+  a debug-time quick-reference. Test asserts `|Q + 5.12| ≤ 1e-6`. **Passes.**
+- File no longer imports `tiger_problem`; location at `experiments/tiger/`
+  is now slightly misleading. Left put — can move to a `tests/` dir later.
+- **Next session:** unchanged from Session 11 — run viz plotter on E1 to
+  verify it lands `violin_returns.png` + `action_breakdown.png`, then
+  E2 (rho_Z sweep, nominal Tiger), then E3 (perturbed world, headline).
+
 ### 2026-05-07 — Session 11: Memory restructure + viz reimplemented + Julia legacy purged
 - **Memory restructure.** Adopted dinov3-style indirection: profile-layer
   `MEMORY.md` is now a 7-line pointer; the canonical index lives at
