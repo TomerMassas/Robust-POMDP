@@ -24,6 +24,14 @@ import numpy as np
 
 from robust_pomdp import TabularPOMDP
 
+from robust_pomdp.evaluation.episode import EpisodeStep
+from robust_pomdp.evaluation.scenario import Scenario, default_results_dir
+from robust_pomdp.uncertainty.uncertainty_sets import (
+    TVDistance,
+    UncertaintySets,
+    uniform_uncertainty,
+)
+
 
 # Named constants (0-based)
 TIGER_ACTION_OPEN_LEFT = 0
@@ -79,3 +87,74 @@ def make_tiger_pomdp(listen_accuracy: float = 0.85) -> TabularPOMDP:
     R[TIGER_STATE_RIGHT, TIGER_ACTION_LISTEN] = -1.0
 
     return TabularPOMDP.from_matrices(T, O, R)
+
+
+# ---------------------------------------------------------------------------
+# Scenario plumbing — perturbation, per-trial metrics, scenario factory
+# ---------------------------------------------------------------------------
+
+def build_perturbed_tiger(model_nominal: TabularPOMDP,
+                          eta_obs: float,
+                          eta_trans: float
+                          ) -> TabularPOMDP:
+    """Tiger perturbation: reduce listen accuracy by `eta_obs`.
+
+    Tiger has degenerate transitions (open resets, listen stays); `eta_trans`
+    must be 0. Kept in the signature for parity with the generic
+    `PerturbWorldFn` interface in `Scenario`.
+    """
+    if eta_trans != 0.0:
+        raise ValueError("Tiger transitions are degenerate; eta_trans must be 0")
+    if eta_obs == 0.0:
+        return model_nominal
+    O_pert = model_nominal.O.copy()
+    O_pert[TIGER_STATE_LEFT,  TIGER_OBS_HEAR_LEFT]  -= eta_obs
+    O_pert[TIGER_STATE_LEFT,  TIGER_OBS_HEAR_RIGHT] += eta_obs
+    O_pert[TIGER_STATE_RIGHT, TIGER_OBS_HEAR_LEFT]  += eta_obs
+    O_pert[TIGER_STATE_RIGHT, TIGER_OBS_HEAR_RIGHT] -= eta_obs
+    assert np.all((0.0 <= O_pert) & (O_pert <= 1.0)), \
+        f"Perturbation eta_obs={eta_obs} drove probabilities out of [0,1]"
+    return TabularPOMDP.from_matrices(model_nominal.T, O_pert, model_nominal.R)
+
+
+def tiger_metrics(trajectory: list[EpisodeStep]) -> dict[str, float]:
+    """Tiger per-trial diagnostics: correct-open / wrong-open / listen counts."""
+    n_correct = n_wrong = n_listen = 0
+    for step in trajectory:
+        if step.action == TIGER_ACTION_OPEN_LEFT:
+            if step.state == TIGER_STATE_RIGHT:
+                n_correct += 1
+            else:
+                n_wrong += 1
+        elif step.action == TIGER_ACTION_OPEN_RIGHT:
+            if step.state == TIGER_STATE_LEFT:
+                n_correct += 1
+            else:
+                n_wrong += 1
+        elif step.action == TIGER_ACTION_LISTEN:
+            n_listen += 1
+    return {"n_correct_open":   n_correct,
+            "n_wrong_open":     n_wrong,
+            "n_listen_actions": n_listen}
+
+
+def make_tiger_scenario(listen_accuracy: float = 0.85) -> Scenario:
+    """Bundle the Tiger plumbing into a Scenario for `run_sweep`."""
+    nominal = make_tiger_pomdp(listen_accuracy=listen_accuracy)
+
+    def uncertainty_factory(rho_T: float, rho_Z: float) -> UncertaintySets:
+        return uniform_uncertainty(nominal.n_states,
+                                   nominal.n_actions,
+                                   rho_T,
+                                   rho_Z,
+                                   TVDistance()
+                                   )
+
+    return Scenario(name="tiger",
+                    nominal_model=nominal,
+                    perturb_world=build_perturbed_tiger,
+                    metrics_fn=tiger_metrics,
+                    metric_columns=["n_correct_open", "n_wrong_open", "n_listen_actions"],
+                    results_dir=default_results_dir("tiger"),
+                    uncertainty_factory=uncertainty_factory
+                    )

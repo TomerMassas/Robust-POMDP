@@ -7,52 +7,34 @@ agreed to revisit later.
 
 ---
 
-## 2026-05-03 — Design `/review` command
+## 2026-05-10 — FrozenLake plan, remaining steps
 
-Self-review pass with two modes — context determines which:
+Steps 1–3 of the FrozenLake plan landed today (Scenario refactor +
+seed fix; `frozenlake_problem.py`; `frozenlake_test.py`). Open:
 
-**Plan-review mode** (after a proposal, before approval):
-- Did I address what you actually asked?
-- Steps in dependency order?
-- Unstated assumptions baked in?
-- Anything missing or over-engineered?
+- **Step 4 — `experiments/frozenlake/run_experiments.py`.** E1 baseline
+  equivalence (BasicPOMCP vs robust(ρ=0) on nominal FrozenLake) + E3_Z
+  (2D ρ_Z × η_obs sweep on Z-perturbed world, calibrated η ∈ [0,
+  ρ_Z/8]) + E3_T (2D ρ_T × η_trans sweep on T-perturbed world,
+  calibrated η ∈ [0, ρ_T/2]). Defaults: n=50, budget=100, horizon=30.
+  Run `--only E1` first to gauge actual runtime.
+- **Step 5 — FrozenLake-specific plot functions** in
+  `viz/plot_results.py`, after first results land: return distribution
+  + outcome breakdown (fell / reached / timed-out); fan-of-curves for
+  ρ × η on the headline plot.
 
-**Code-review mode** (after a change, before declaring done):
-- Scope creep — touched only what plan said?
-- Loose ends — leftover prints, TODOs, commented code?
-- Tests added/updated where needed?
-- Edge cases I missed?
+## 2026-05-10 — Additional benchmark toys to add later
 
-**Output discipline:** don't fake. If nothing to flag, output is one line:
-*"Self-review: nothing to flag."*
+After FrozenLake is in and yields a clean robust-vs-vanilla picture,
+layer in two more benchmarks for breadth:
 
-**Open design questions:**
-- Name `/review` OK, or different?
-- Auto-trigger after non-trivial work, manual `/review` only, or both?
-- Output structure above OK?
-
----
-
-## 2026-05-03 — Reimplement violin/action plot functions in viz/plot_results.py
-
-Lost when this branch was force-merged to main, dropping commit `253b292`
-from origin/main. The Julia changes in that commit will be regenerated
-post-migration; the Python plot functions need to be reimplemented by hand.
-
-**Functions to reimplement (in `viz/plot_results.py`):**
-
-- `plot_e1_violin()` — per-episode return distribution per planner (violin),
-  reads `*_raw.csv` for per-trial rows
-- `plot_e1_actions()` — stacked bar (correct / wrong open / listen count)
-  per planner, with count annotations on each segment
-- `plot_e2_line()` — mean return vs ρ_Z (line + error bars)
-- `plot_e2_violins()` — return distribution violin per ρ_Z value
-- `plot_e2_actions()` — action breakdown across ρ_Z values
-- Wrappers `plot_e1()` and `plot_e2()` calling the sub-plots
-- `plot_e3_placeholder()` — stub for E3 (perturbed world)
-- Update `read_latest()` to disambiguate summary vs raw CSVs
-  (add `raw: bool = False` arg)
-
-**Reference:** original code is at `git show 253b292:viz/plot_results.py`
-while the reflog still has it (~90 days locally; the commit also exists on
-GitHub's history server-side until cleaned up).
+- **CheeseMaze** — small T-shaped grid (~11 cells); observations are
+  the wall-pattern of the current cell, causing perceptual aliasing
+  across multiple cells. Wrong obs model = misidentified cell type =
+  wrong direction. Small enough to compute exact V; the failure mode
+  is structural rather than quantitative.
+- **RockSample(n, k)** — n×n grid with k rocks of unknown good/bad
+  quality; check action returns a noisy binary signal whose accuracy
+  decays with distance to the rock. Sensor decay constant is the
+  natural ρ_Z. Scales (RS(4,4)=256, RS(7,8)≈12k); strongest "main
+  event" candidate for the headline experiment.

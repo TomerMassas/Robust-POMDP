@@ -23,11 +23,7 @@ from robust_pomdp.solvers.robust_pomcp import (
 )
 from robust_pomdp.evaluation.belief_update import bayes_update
 from robust_pomdp.evaluation.episode import EpisodeStep, run_episode
-from robust_pomdp.evaluation.perturbation import (
-    build_perturbed_tiger,
-    perturb_observation_model,
-    perturb_transition_model,
-)
+from robust_pomdp.evaluation.scenario import Scenario, default_results_dir
 from robust_pomdp.evaluation.pomdp_py_adapter import (
     TabularPOMDPWrapper,
     make_basic_pomcp_planner,
@@ -66,9 +62,8 @@ __all__ = [
     "bayes_update",
     "EpisodeStep",
     "run_episode",
-    "perturb_observation_model",
-    "perturb_transition_model",
-    "build_perturbed_tiger",
+    "Scenario",
+    "default_results_dir",
     "TabularPOMDPWrapper",
     "make_basic_pomcp_planner",
     "ExperimentConfig",

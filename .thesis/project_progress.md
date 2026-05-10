@@ -6,6 +6,106 @@ originSessionId: 60e505b2-035f-4545-ad11-905ae1961031
 ---
 ## Session Log
 
+### 2026-05-10 — Session 14: scenario refactor + seed fix + FrozenLake constructor + smoke test
+- **Big-picture decision.** Loaded Tamir et al. 2025 (RSS — Robust
+  Sparse Sampling). Stole their design lesson: *localize uncertainty
+  to where misspecification is catastrophic*, not uniform. Tamir
+  uses FrozenLake (8×8) and CartPole as MDP toys with localized
+  perturbations. We adopt FrozenLake as our next POMDP toy.
+  CheeseMaze and RockSample go into deferred-toys list (after
+  FrozenLake yields a clean robust-vs-vanilla picture).
+- **Why retire Tiger as headline.** |S|=2, |Z|=2 makes projection
+  degenerate (the paper's novelty barely exercises). One policy
+  structure (listen-then-open) → robustness only shifts threshold.
+  Reward asymmetry confounds the story. E3 robust-vs-vanilla gap is
+  ~1σ at the calibrated edge.
+- **Scenario refactor (framework-wide).** Replaced Tiger-specific
+  plumbing in `evaluation/sweep.py` with a generic `Scenario`
+  dataclass at `evaluation/scenario.py`. Each toy provides
+  `make_<name>_scenario()` returning `(name, nominal_model,
+  perturb_world, metrics_fn, metric_columns, results_dir,
+  uncertainty_factory)`. Migrated `build_perturbed_tiger`,
+  `tiger_metrics` to `experiments/tiger/tiger_problem.py`. Deleted
+  `evaluation/perturbation.py`. Updated `__init__.py`. Verified:
+  Tiger E1 BasicPOMCP byte-identical to historical (modulo
+  date+runtime).
+- **Pre-existing seeding bug found + fixed.**
+  `robust_pomcp_plan(...)` at `solvers/robust_pomcp.py:64-65`
+  creates an unseeded RNG when `rng=None`; `make_robust_planner`
+  in sweep.py never passed one. So every historical robust_pomcp
+  result was non-deterministic. Fix: thread per-trial planner_rng,
+  derive world+planner rngs from one seed via
+  `np.random.default_rng(seed).spawn(2)`, build robust planner
+  closure inside the trial loop. BasicPOMCP planner stays outside
+  (uses Python stdlib `random` re-seeded per trial; moving its
+  build inside changes pomdp_py behavior in some
+  object-identity-dependent way — investigated, dropped, shift
+  was within 1σ noise). Verified: two back-to-back post-fix runs
+  produce byte-identical CSVs (modulo runtime).
+- **Historical CSV caveat.** Pre-fix robust_pomcp results
+  (2026-05-03, 2026-05-08) are valid samples but not
+  point-reproducible. Worth re-running Tiger E2/E3 once for
+  canonical reproducible baselines.
+- **`Scenario.uncertainty_factory` added.** Supports localized
+  uncertainty (Tamir-style hole-adjacent ρ_T for FrozenLake) while
+  Tiger keeps uniform. The factory is `(rho_T, rho_Z) →
+  UncertaintySets`; Tiger's wraps `uniform_uncertainty`,
+  FrozenLake's builds zero-everywhere-except-HOLE_ADJACENT for ρ_T.
+  `run_config` calls `scenario.uncertainty_factory(...)` instead of
+  hardcoded `uniform_uncertainty(...)`.
+- **FrozenLake design locked.**
+  - 8×8 gym `FrozenLake-v1` standard layout. |S|=65 (64 grid + 1
+    absorbing terminal). |A|=4. |Z|=16. 10 holes, 26 hole-adjacent
+    frozen cells.
+  - Initial belief concentrated at start cell (0,0).
+  - Reward Tamir-shaped: `r(s) = 1/(d(s)+1)^3` for frozen, +1 at
+    goal, 0 at hole and terminal.
+  - Slip: p intended, (1−p)/2 each perpendicular, 0 backward.
+    Off-grid stays in place. Default p° = 0.6 (less slippery than
+    Tamir's 0.4).
+  - Obs: 4-bit hole-adjacency (N/S/E/W: "is that direction a
+    hole?"). Bits flip independently with probability ε. Off-grid
+    edges read as 0. Terminal observation uniform over 16. Default
+    ε° = 0.05.
+  - **Z uncertainty uniform across cells** (world ε°+η_obs;
+    planner ρ_Z uniform).
+  - **T uncertainty localized to HOLE_ADJACENT** (Tamir-spirit).
+    World uses p° outside, p°−η_trans inside (more slippery).
+    Planner ρ_T(s,a) = 0 outside, ρ_T inside.
+  - Calibration math for E3 (deferred to E3 design): ρ_Z ≈ 8·η_obs
+    (joint TV of 4 indep Bernoullis), ρ_T = 2·η_trans (slip row L1
+    TV).
+- **`UncertaintySets` already had per-(s,a) ρ_T support.** No
+  LP/solver-side change needed for localized uncertainty.
+- **Files created.** `experiments/frozenlake/{.gitkeep,
+  frozenlake_problem.py, frozenlake_test.py}`. Constructor sanity
+  passed: T/O rows sum to 1; cell (2,2) at ε=0.05 gives
+  P(z=4)=0.8145 (matches deep-dive math); localized ρ_T zero
+  outside HOLE_ADJACENT, set inside; perturbation correctly
+  uniform-Z + localized-T. Smoke test runs robust_pomcp_plan and a
+  full episode (horizon=30, budget=50): trial-1 fell in a hole
+  (sensible at low budget on slippery world), metrics shape
+  verified.
+- **Two pushbacks worth flagging.** (1) Tomer caught me
+  rushing to a fix when the "BasicPOMCP behavior shifted" symptom
+  appeared post-seed-fix — pushed me to diagnose first instead of
+  patch first. Probes confirmed neither Python random nor numpy
+  global state was consumed by `make_basic_pomcp_planner`, so it's
+  some downstream object-identity thing in pomdp_py; shift was
+  within sampling noise so we accepted and moved on. (2) Tomer
+  flagged my model layout was unclear (5+6 conflated) — forced me
+  to write out concretely "where is uncertainty, where isn't, where
+  does world differ from nominal" in tabular form. The clarification
+  (ε is sensor noise level; ρ is planner's hedge over what ε might
+  be — independent dimensions) was load-bearing for the rest of the
+  design.
+- **Next session.** Step 4 of FrozenLake plan:
+  `experiments/frozenlake/run_experiments.py` with E1 (baseline
+  equivalence) + E3_Z (2D ρ_Z × η_obs) + E3_T (2D ρ_T × η_trans).
+  Run `--only E1` first to gauge runtime; estimated ~50 min total
+  at n=50/budget=100/horizon=30. Step 5 (FrozenLake-specific
+  plotting) after first results land.
+
 ### 2026-05-08 — Session 13: results dir restructure + E3 redesigned as 2D rho_Z × eta sweep
 - **Walked through `compute_robust_q`** (lines 428–441 — Step 1 obs LP).
   Wrote down model-structure semantics, projected TV-ball conventions

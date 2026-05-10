@@ -19,7 +19,7 @@ import logging
 
 from robust_pomdp import ExperimentConfig, run_sweep
 
-from tiger_problem import make_tiger_pomdp
+from tiger_problem import make_tiger_scenario
 
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 TODAY = datetime.date.today().isoformat()  # "yyyy-mm-dd"
-TIGER = make_tiger_pomdp(listen_accuracy=0.85)
+SCENARIO = make_tiger_scenario(listen_accuracy=0.85)
 
 N_TRIALS_DEFAULT = 100
 BUDGET_DEFAULT = 100
@@ -64,7 +64,7 @@ def experiment_E1() -> None:
                          horizon=HORIZON_DEFAULT
                          ),
     ]
-    run_sweep("E1", TODAY, "baseline_basicpomcp_vs_rho0", cfgs, TIGER,
+    run_sweep("E1", TODAY, "baseline_basicpomcp_vs_rho0", cfgs, SCENARIO,
               index_oneliner="Baseline equivalence: BasicPOMCP vs robust_pomcp(rho=0) on nominal Tiger"
               )
 
@@ -106,7 +106,7 @@ def experiment_E2() -> None:
                          )
         for rho_z in (0.0, 0.05, 0.1, 0.2, 0.3)
     ]
-    run_sweep("E2", TODAY, "rho_z_sweep_nominal", cfgs, TIGER,
+    run_sweep("E2", TODAY, "rho_z_sweep_nominal", cfgs, SCENARIO,
               index_oneliner="rho_Z sweep (0..0.3) on nominal Tiger world"
               )
 
@@ -182,7 +182,7 @@ def experiment_E3() -> None:
                                      horizon=HORIZON_DEFAULT
                                      ))
 
-    run_sweep("E3", TODAY, "rho_z_eta_sweep", cfgs, TIGER,
+    run_sweep("E3", TODAY, "rho_z_eta_sweep", cfgs, SCENARIO,
               index_oneliner="rho_Z grid x per-group eta sweep on perturbed Tiger; vanilla baseline included"
               )
 
@@ -207,7 +207,7 @@ def experiment_E4() -> None:
                                          sims_per_backup=5,
                                          horizon=HORIZON_DEFAULT
                                          ))
-    run_sweep("E4", TODAY, "eta_sweep_paired", cfgs, TIGER,
+    run_sweep("E4", TODAY, "eta_sweep_paired", cfgs, SCENARIO,
               index_oneliner="eta sweep on world; vanilla(rho=0) vs robust(rho_Z=0.2)"
               )
 
@@ -236,7 +236,7 @@ def experiment_E5() -> None:
                              )
             for K in (1, 5, 25, 100, 500)
         ]
-        run_sweep("E5", TODAY, f"simsperbackup_sweep_{suffix}", cfgs, TIGER,
+        run_sweep("E5", TODAY, f"simsperbackup_sweep_{suffix}", cfgs, SCENARIO,
                   index_oneliner=oneliner
                   )
 
@@ -265,7 +265,7 @@ def experiment_E6() -> None:
                              )
             for mode in ("nominal", "robust")
         ]
-        run_sweep("E6", TODAY, f"ucbmode_compare_{suffix}", cfgs, TIGER,
+        run_sweep("E6", TODAY, f"ucbmode_compare_{suffix}", cfgs, SCENARIO,
                   index_oneliner=oneliner
                   )
 
@@ -294,7 +294,7 @@ def experiment_E7() -> None:
                              )
             for h in (3, 5, 7, 10)
         ]
-        run_sweep("E7", TODAY, f"horizon_sweep_{suffix}", cfgs, TIGER,
+        run_sweep("E7", TODAY, f"horizon_sweep_{suffix}", cfgs, SCENARIO,
                   index_oneliner=oneliner
                   )
 
