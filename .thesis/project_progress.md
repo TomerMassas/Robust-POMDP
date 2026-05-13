@@ -6,6 +6,114 @@ originSessionId: 60e505b2-035f-4545-ad11-905ae1961031
 ---
 ## Session Log
 
+### 2026-05-13 — Session 15: FrozenLake episode viewer (v1+v2+v3) + `/audit-plan` slash command
+- **Built the FrozenLake episode viewer end-to-end through v3.** Single
+  Dash app at `viz/episode_app.py`. Loads JSON produced by new
+  `experiments/frozenlake/record_episode.py`. Layered, all toggleable:
+  - **v1 (grid)**: 8×8 grid (holes light grey, goal gold-rimmed +
+    star, start green-rimmed). Belief heatmap (red gradient, per-step
+    max for legibility). Agent disc (black) + NSEW observation halo
+    (sensor bits as dark/light wedges N/S/E/W around the disc).
+    Chosen-action arrow (per-action color). Q_robust bars at root.
+    Step readout + cumulative return + per-step true→next state.
+    Slider + Prev/Next buttons. Result badge in header (REACHED GOAL
+    / FELL IN HOLE / TIMED OUT). Metadata as chip pills. White cards
+    on light-grey bg.
+  - **v2 (flow field)**: thin grey arrow per belief-supported cell to
+    its modal next-cell under the chosen root action, derived from
+    `sim_step` events at `depth=0` filtered to
+    `action_chosen == a_t`. Width = per-cell normalized confidence
+    `count[s, s'*] / total_from_s`. Skips agent's true cell (action
+    arrow already conveys it) and no-movement transitions
+    (`s'* == s`).
+  - **v3 (adversary chevrons)**: small colored dot at each cell
+    `s' ∈ S_in` whose radius encodes
+    `|Σ_{s ∈ S_in} b(s) · (optimal_p_s[s'] − nominal_p_s[s'])|`.
+    Sienna (`#a0522d`) for adversary added mass, teal (`#00a0a0`) for
+    removed. Bottom-right of cell, threshold |delta| > 0.01.
+  - **Reward heatmap**: static green per-cell overlay (`rgba(40,180,90,α)`,
+    `α ∝ r(s)/max_r`). Shows the Tamir-style `1/(d+1)^3` landscape.
+- **`record_episode.py` driver** (inline episode loop, doesn't touch
+  `evaluation/episode.py`). CLI: `--horizon`, `--plan-horizon`,
+  `--budget`, `--sims-per-backup`, `--p`, `--epsilon`, `--seed`,
+  `--robust`, `--rho-t`, `--rho-z`, `--eta-obs`, `--eta-trans`,
+  `--ucb-mode`, `--strip-events`. JSON output: per-step `{state,
+  belief, action, obs, reward, next_state, q_robust, planner_events}`
+  + scenario metadata. Early-exits on terminal absorption.
+- **`--plan-horizon` decouples episode length from per-sim depth.**
+  Original `horizon=args.horizon - t` conflated them — budget gets
+  diluted across deep, mostly-irrelevant futures at long episodes.
+  Now `plan_h = min(args.plan_horizon, args.horizon - t)` caps the
+  planner's lookahead independently. At
+  `--horizon 100 --plan-horizon 40 --budget 500 --p 0.95
+  --strip-events`, agent reaches goal cleanly (total_R ≈ 1.6).
+- **Two bugs caught and fixed mid-session:**
+  - Recorder didn't early-exit on terminal absorption — JSON had a
+    useless tail of "nothing happens" steps after the agent fell in a
+    hole or reached the goal. Fixed: `if state == TERMINAL_STATE:
+    break` after the Bayes update.
+  - Viewer halo at step `t` used `record["obs"]` which is generated
+    from `next_state` (the cell the agent *will* be in), not `state`
+    (the cell it *is* in). So wedges described neighbors of the wrong
+    cell. Fixed to use `episode[t-1]["obs"]` (the obs that informed
+    the current belief). At `t=0`, no halo (no prior obs yet).
+- **Critical bug caught by `/audit-plan` on the v3 draft.** Initial
+  aggregation pseudocode used `belief[s]`, but
+  `last_backup["belief"]` is `|S_in|`-indexed, not `N_STATES`-indexed
+  (per `compute_belief()` at `robust_pomcp.py:482-488`). Plan + impl
+  corrected to build `state_to_w = {s: belief[j] for j, s in
+  enumerate(S_in_list)}` first, then `w = state_to_w.get(s, 0.0)`. If
+  shipped as written, would have crashed on first run.
+- **`/audit-plan` slash command created** at
+  `~/.claude-thesis/commands/audit-plan.md`. Mirrors Tomer's
+  personal-profile `audit-plan` but adapted to the thesis context:
+  added **Math correctness** lens (index conventions, distance metric,
+  sub-prob semantics); added **Viz / plot correctness** lens;
+  replaced "Sensitive paths" with **Numerical / degenerate cases**
+  lens (`ρ=0`, singleton `S_in`, terminal absorption, LP infeasibility).
+  Action list uses two separated tables (`5a` auto-fixes + `5b`
+  decisions, with per-row `#` for easy reference). Used twice this
+  session; caught the belief-indexing bug above + several smaller
+  fixes (marker corner offset, smoke-coverage gaps, etc.).
+- **Plans written**: `~/.claude-thesis/plans/v2-flow-field.md`,
+  `~/.claude-thesis/plans/v3-adversary-chevrons.md`. Audited and
+  revised. (The original `i-put-you-in-transient-lagoon.md` from
+  earlier in the session covers v1.)
+- **Random-rollout limitation surfaced as a real research issue.**
+  POMCP's uniform-random rollout on 8×8 FrozenLake with 10 holes
+  essentially never reaches the goal during rollouts — planner has no
+  goal signal in MC returns; Q-values driven entirely by the very-
+  peaked shaped reward. At `b=500/h_plan=40/p=0.95` agent reaches goal;
+  at smaller budgets it doesn't. **Discussed but deferred** the
+  goal-aware rollout fix (Manhattan-greedy or ε-greedy toward goal) —
+  would unblock E1/E3 quality but bakes scenario knowledge into the
+  solver. Tomer's not interested in fixing this right now; flagged
+  for later.
+- **Reward shape tuning discussed.** `1/(d+1)^3` is very peaked (start
+  cell ≈ 3e-4, ratio d=1:d=14 ≈ 420×). Considered `1/(d+1)^2` (ratio
+  60×) and `1/(d+1)` (ratio 7.5×). Tomer leaning toward changing it;
+  the actual swap is just `**3` → `**2` or `**1` at
+  `frozenlake_problem.py:300`. Not changed this session.
+- **Viewer iterations driven by Tomer's eyeball feedback**: red→black
+  agent disc (red was fighting the new red belief heatmap), Q-bar
+  width clipping fix, `dcc.Store` removed (unused — was shipping the
+  full episode JSON to the browser per request), unified flow + slider
+  callback to kill double-roundtrip lag, NSEW wedge colors revisited
+  twice, adversary marker corner offset + color choice (mulberry
+  rejected — too close to belief red, swapped to sienna), per-toggle
+  inline color swatches + explanations, multi-cause availability note
+  with localized-ρ_T-aware messaging.
+- **Two prompts drafted at session end** for Tomer to take to a chat
+  Claude conversation: (a) full thesis context for experimental
+  design, (b) algorithm-only deep dive. Both copy-paste ready.
+- **Next session.** E1 baseline equivalence on FrozenLake is the
+  cleanest unblocked move — vanilla `BasicPOMCP` vs `robust(ρ=0)`
+  should agree within sampling noise on the nominal world (same as
+  the Tiger E1 result). After that, E3 design needs reward-shape +
+  rollout-policy decisions first. The episode viewer is now solid
+  enough to be the eyeball-first debugging tool when sweeps surface
+  weird per-config outliers.
+
 ### 2026-05-10 — Session 14: scenario refactor + seed fix + FrozenLake constructor + smoke test
 - **Big-picture decision.** Loaded Tamir et al. 2025 (RSS — Robust
   Sparse Sampling). Stole their design lesson: *localize uncertainty

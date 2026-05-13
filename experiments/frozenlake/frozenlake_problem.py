@@ -53,14 +53,24 @@ from robust_pomdp.uncertainty.uncertainty_sets import (
 # ---------------------------------------------------------------------------
 
 # Gym FrozenLake-v1 standard 8x8 layout.
+# GRID_LAYOUT = (
+#     "SFFFFFFF",
+#     "FFFFFFFF",
+#     "FFFHFFFF",
+#     "FFFFFHFF",
+#     "FFFHFFFF",
+#     "FHHFFFHF",
+#     "FHFFHFHF",
+#     "FFFHFFFG",
+# )
 GRID_LAYOUT = (
     "SFFFFFFF",
+    "FFFHFFFF",
+    "FFFFFFFF",
     "FFFFFFFF",
     "FFFHFFFF",
-    "FFFFFHFF",
-    "FFFHFFFF",
-    "FHHFFFHF",
-    "FHFFHFHF",
+    "FFFFFFFF",
+    "FHFFFFHF",
     "FFFHFFFG",
 )
 
