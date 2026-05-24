@@ -390,7 +390,8 @@ def compute_robust_q(h: HistoryNode,
                      logger: SolverLog | None,
                      backup_counter: int,
                      previous_Q_robust: float,
-                     lp_cache: dict[int, ProjectedTVBall] | None = None
+                     lp_cache: dict[int, ProjectedTVBall] | None = None,
+                     belief_override: np.ndarray | None = None
                      ) -> tuple[float, int]:
     """Compute Q_robust(h, a) via the two-step LP decomposition.
 
@@ -402,6 +403,10 @@ def compute_robust_q(h: HistoryNode,
 
     `lp_cache` may be None (e.g. when called from a verification script that
     only does one or two backups). A fresh dict is allocated in that case.
+
+    `belief_override`, if given, replaces the particle-empirical belief with an
+    explicit vector aligned with `sorted(h.S_in)`. Used by A1's exact tree
+    evaluator (no Monte-Carlo). POMCP-style callers leave it as `None`.
     """
     if lp_cache is None:
         lp_cache = {}
@@ -409,7 +414,12 @@ def compute_robust_q(h: HistoryNode,
     S_in = sorted(h.S_in)
     Z_in = sorted(action_node.Z_in)
 
-    belief = compute_belief(h.particles, S_in)
+    if belief_override is not None:
+        assert belief_override.shape == (len(S_in),), \
+            f"belief_override shape {belief_override.shape} != ({len(S_in)},)"
+        belief = belief_override
+    else:
+        belief = compute_belief(h.particles, S_in)
 
     V_children = [action_node.children[z].V_robust if z in action_node.children else 0.0 for z in Z_in]
 

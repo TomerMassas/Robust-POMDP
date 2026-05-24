@@ -6,6 +6,185 @@ originSessionId: 60e505b2-035f-4545-ad11-905ae1961031
 ---
 ## Session Log
 
+### 2026-05-24 — Session 17: A1 Phases 1-4 implementation + Phase 5 design pause
+
+- **Implementation plan written + plan mode workflow.** After Explore + Plan
+  agents, wrote `C:\Users\TomerMassas\.claude-thesis\plans\lets-now-proceed-to-golden-wren.md`
+  (10 phases mapping onto roadmap Phase 3 + 4). Workflow lock: 1-by-1 with
+  validation, inline diff preview before every Edit, run sanity check after
+  each phase, only continue when green.
+- **venv set up.** Created `.venv/` at repo root with Python 3.11. Fresh
+  `pip install -e ".[viz]" pytest` resolved `numpy 2.4.6 + scipy 1.17.1 +
+  matplotlib 3.10.9` — these are mutually compatible (unlike the global
+  Python's old-matplotlib + new-numpy combo that was crashing PyCharm's
+  debugger via `sitecustomize.py`). PyCharm now points at
+  `.venv\Scripts\python.exe`.
+- **Phase 1 landed.** `experiments/a1/synthetic_pomdp.py` (`make_synthetic_pomdp`,
+  `make_initial_belief`, action constants, `RewardSpec` dataclass) and
+  `experiments/a1/fixed_policy.py` (`warning_threshold_policy`). Defaults
+  match the A1 design PDF. Smoke verifies T/O row sums, boundary clipping
+  at s=0 and s=N-1, per-class reward signs, belief class masses,
+  observation peak alignment, and the policy rule at threshold boundaries.
+- **Phase 2 landed.** `src/robust_pomdp/bounds/support_picker.py` with
+  `uniform_pick` and `exponential_decay_pick`. Decay scheme: bin index
+  range, per-bin allocation `∝ exp(-decay · b) · bin_size`, largest-remainder
+  for fractional residuals, water-fill on saturated bins. At
+  `target=0.3, N=100, decay=0.5`: bin 0 saturates at 10, decays to 0 by
+  bin 8. At high target_fraction with steep decay, the front bins saturate
+  and the algorithm degrades gracefully into "front filled + smooth tail."
+- **Phase 3 landed.** Extended `compute_robust_q` in
+  `solvers/robust_pomcp.py` with optional `belief_override: np.ndarray | None
+  = None`. ~5-line change in the solver; POMCP path unchanged when None.
+  Regression: `experiments/tiger/verify_robust_backup.py` still passes
+  byte-identical (Q_robust = -5.12 to machine precision).
+- **Phase 4 landed.** `experiments/a1/tree_evaluator.py` with `NodeData`,
+  `project_belief`, `projected_bayes_update`, `build_fixed_policy_tree`,
+  `evaluate_robust_value`. Tree expands one action per HistoryNode (per
+  the fixed policy), |Z_in| obs children per ActionNode. A1-specific
+  metadata (exact belief vector + policy action + terminal flag + depth)
+  lives in a parallel `dict[node.id, NodeData]` — **zero touch on the
+  existing `core/tree.py`**. Smoke verifies tree shape (10 nodes for
+  N=4/M=3/H=2 full tree), beliefs sum to 1 at every node, V at ρ=0 with
+  full support matches independent recursive nominal expectation
+  (2.121231), projected tree is smaller (7 nodes for |S_in|=2,|Z_in|=2).
+- **Smoke organization.** Per Tomer's directive, smokes live in
+  `experiments/a1/smoke_test/` (kept for reuse — no longer transient).
+- **Tree visualization.** Iterated through three designs:
+  - ASCII tree printer (rejected — "i dont understand what is going on
+    there, i want an image like that i will zoom in").
+  - matplotlib-based static PNG with custom hierarchical layout — proposed,
+    self-rated 6/10 (custom Reingold-Tilford-lite layout uneven for
+    non-uniform branching; scales poorly past Phase 4).
+  - Final: `viz/tree_viz.py` — generates standalone HTML with cytoscape.js
+    from CDN. Sibling to `viz/app.py`; reuses cytoscape conventions
+    (history vs action node shapes, dagre layout, label format) but skips
+    the 666-line event-replay machinery (A1's tree is static).
+    Color-coded action nodes (inspect=grey, proceed=green, mitigate=amber,
+    abort=red), terminal HistoryNodes dashed red. Header has Save-PNG +
+    Fit buttons + legend. Browser-native pan/zoom; cytoscape.js's
+    `cy.png()` exports static images on demand. Repo-root `sys.path`
+    insertion in the smoke makes `from viz.tree_viz import ...` resolve
+    when run from anywhere.
+- **A1 vs Solver A clarification.** Tomer briefly got confused why the
+  full tree shows one action child per history (not multiple). Re-anchored:
+  A1 is an *evaluator* of a fixed policy, not a planner. Single action per
+  history is by construction (paper's "tree policy" wording, Eq. 16). The
+  branching is over observations only. Distinct from Solver A which UCB-
+  expands all actions.
+- **Phase 5 paused — load-bearing math correction.**
+  - Tomer asked which paper equations Phase 5 implements: **Eq. 71**
+    (`Δ_K^rob`) via the **Eq. 47** decomposition (under `Σ_z P_Z = 1`
+    simplifies to `‖P_T − P_T^in‖_1 + Σ P_T^in(s')·‖P_Z(·|s') − P_Z^in(·|s')‖_1`).
+  - Discovered the plan's LP formulation for Δ_Z and Δ_K^rob is
+    **mathematically unbounded**: `max Σ u_z s.t. u_z ≥ ±(P − P^in)_z` pushes
+    every `u_z → +∞` since `u_z` has only lower bounds in the LP.
+  - Walked through why the `u ≥ x ∧ u ≥ -x` trick only works for
+    *minimizing* `|x|`. The sign-flip `max f = -min(-f)` doesn't help —
+    `‖x‖_1` is convex, so `min(-‖x‖_1)` is `min of concave` which is
+    equally hard.
+  - Tomer pushed for academic rigor — explicitly does **not** want a loose
+    closed-form bound. I corrected my earlier framing: **Eq. 47 IS exactly
+    computable, just not via a single LP.** The right tool is **MILP**
+    (mixed-integer linear program) with binary sign-pattern variables +
+    big-M linearization, OR orthant enumeration (2^d LPs). HiGHS supports
+    MILP natively — same library as the existing LP path. I owed Tomer
+    that correction; earlier framing of "no clean LP → uncomputable" was
+    sloppy.
+  - Eq. 47 vs Eq. 48 discussed. Eq. 48 (looser) eliminates the inner-outer
+    nesting but doesn't escape the max-L1 hardness per piece. Eq. 47 +
+    MILP remains the academic-rigorous path.
+- **Where Phase 5 stops.** Decision point conceptually agreed: MILP-based
+  exact computation. But Tomer explicitly wants to walk through the math
+  step-by-step *before any code lands* — these are the actual numbers that
+  go into the conference paper; he needs to fully own the derivation.
+- **Files this session (uncommitted at /session-end).**
+  - New: `experiments/a1/{synthetic_pomdp,fixed_policy,tree_evaluator}.py`
+  - New: `experiments/a1/smoke_test/{phase1,phase2,phase4}_smoke.py`
+  - New: `src/robust_pomdp/bounds/{__init__,support_picker}.py`
+  - New: `viz/tree_viz.py`
+  - Modified: `src/robust_pomdp/solvers/robust_pomcp.py` (added
+    `belief_override` kwarg, ~5 lines)
+  - New (outside repo): plan file at
+    `C:\Users\TomerMassas\.claude-thesis\plans\lets-now-proceed-to-golden-wren.md`
+  - New (gitignored): `.venv/` at repo root
+- **Next session.** Walk Phase 5 math step-by-step with Tomer until he
+  fully internalizes the Eq. 47 → MILP path. Then implement
+  `bounds/delta_z.py` and `bounds/delta_k.py` (MILP via highspy with
+  binary sign vars), plus a Phase 5 smoke that cross-checks the MILP
+  answer against brute-force orthant enumeration on a tiny config
+  (|Z|=3, 8 orthants).
+
+### 2026-05-19 — Session 16: A1 (Fixed-Policy Projected Robust Tree Evaluator) design discussion
+
+- **Big-picture pivot.** Tomer rethought experiments + planners. Drafted A1
+  design in `pdfs/planner A - design.pdf`: a *theory-validation evaluator* (not a
+  planner) on a synthetic ordered-risk POMDP. Goal — empirically validate
+  the projection theorems Eq. 63 (non-robust) and Eq. 74 (robust) by
+  computing full robust V vs. projected robust V̂ for a *fixed* policy on a
+  finite-horizon tree, sweeping projection size. Maps onto Phase 3 + Phase 4
+  of the roadmap, both currently open.
+- **A1 design overview.** Synthetic POMDP: S = {0..N−1} ordered by hidden
+  risk (safe / risky / catastrophic partitioning by fraction). A = {inspect,
+  proceed, mitigate, abort} (abort terminal). Z = {0..M−1} ordered warning
+  severities. Belief is class-mass + intra-class exponential decay.
+  Transitions push toward higher risk for inspect/proceed, lower for
+  mitigate. Observation is exp-decay around state's target_z. Rewards
+  penalize `proceed` heavily in risky/cat states. Fixed policy: depth-0 →
+  mandatory `inspect`; else action keyed on last-observation warning level
+  (warning < 0.4 → proceed, < 0.75 → mitigate, else → abort).
+- **Read the PDF carefully + flagged 7 issues to discuss.** Confirmed
+  understanding before locking design. Held positions where I had real
+  conviction (don't enrich single policy — multi-policy sweep adds more
+  meaning); honest about cosmetic-vs-load-bearing options.
+- **Locked decisions for first A1 experiment.**
+  - **Robust case only** (Eq. 74). Non-robust (Eq. 63) skipped.
+  - **Eq. 47-form kernel mismatch** (tighter than Eq. 48). Nothing in
+    `bounds/` exists yet — confirmed via grep — fresh code.
+  - **Compute scaling target**: N ∈ [10, 200], M ∈ [4, 12], H ∈ [3, 6].
+    Scale up during tests until full robust becomes intractable; use to
+    compare full vs. projected runtimes.
+  - **Uniform projection at every node** (same S_in[m], Z_in[m] at every
+    history h). Per-node varying — closer to online sampling — deferred to
+    A1 test 2.
+  - **Non-uniform "spread" projection**: deterministic, exponential decay
+    of inclusion percentage per bin along the risk index. Denser at safe
+    end, sparser at catastrophic. Same scheme on Z_in (low-warning dense,
+    high-warning sparse). NOT "top 30 % safest" — spreads picks across the
+    full range. Example: if target is 30 % of states, bin 0 keeps ~95 %,
+    bin 9 keeps ~5 %.
+  - **Uniform ρ_T(s,a), ρ_Z(s)** across all (s,a). Localized radii deferred.
+  - **Single fixed policy** for first run (PDF's warning-threshold rule).
+    Multi-policy sweep deferred.
+- **Two reframes worth flagging.**
+  - On policy enrichment: Tomer's "does it add meaning?" filter cut
+    belief-dependent root (cosmetic, skipped) and made depth-dependent
+    thresholds optional (only if we want per-depth bound breakdown plots).
+    The thing that actually adds demonstration robustness is running A1
+    over **2-3 distinct fixed policies** (leakage-heavy / mismatch-heavy /
+    balanced) — deferred to follow-up.
+  - On N-scaling: explicitly clarified that under translation-invariant
+    transitions, scaling N exercises belief-vector size + leakage geometry
+    + LP-runtime, but **not** structural diversity of state dynamics.
+    Worth noting in writeup so we don't oversell "scales to diverse state
+    spaces." Heterogeneous-dynamics follow-up added to todos (safer →
+    higher stay-probability, riskier → lower).
+- **Codebase reuse picture for A1.** Heavy reuse: `TabularPOMDP`,
+  `UncertaintySets`, `ProjectedTVBall`, the robust-backup LPs from Solver A
+  all carry over (replace UCB action selection with `action = π(h)`). New
+  code: synthetic domain builder, full-tree expander under fixed policy,
+  restrict→projected, bound-term computation (Δ_b, Δ_T, Δ_Z, Δ_K^rob,
+  leakage), sweep driver.
+- **Files changed this session.** `.thesis/todos.md` — added 2026-05-19
+  section with three A1 follow-ups (per-node varying projection /
+  heterogeneous dynamics / policy variations). `pdfs/planner A - design.pdf` was
+  staged at session start.
+- **Next session.** Lock remaining implementation-level details before
+  writing code: (a) exact projection-decay shape parameterization (how
+  steep, target % range); (b) ρ_T, ρ_Z defaults; (c) belief-shape params
+  (lambda_*, mass_*); (d) reward defaults (PDF proposes some); (e) sweep
+  output layout (csv/json). Then write the implementation plan and start
+  on a new A1 experiment folder.
+
 ### 2026-05-13 — Session 15: FrozenLake episode viewer (v1+v2+v3) + `/audit-plan` slash command
 - **Built the FrozenLake episode viewer end-to-end through v3.** Single
   Dash app at `viz/episode_app.py`. Loads JSON produced by new
