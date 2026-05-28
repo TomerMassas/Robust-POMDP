@@ -6,6 +6,95 @@ originSessionId: 60e505b2-035f-4545-ad11-905ae1961031
 ---
 ## Session Log
 
+### 2026-05-28 — Session 18: Phase 6 sub-steps 2 + 3 (inside-trajectory DP, certificate assembly)
+
+Picked up mid-Phase 6 (sub-step 1 leakage primitives already done in a prior
+unlogged session). Closed out Phase 6 with two sub-steps and the integration
+smoke for the Eq. 74 certificate.
+
+- **Phase 6 sub-step 2 (inside-trajectory tree DP, paper Eq. 73).** New
+  `src/robust_pomdp/bounds/inside_trajectory.py` with
+  `compute_inside_traj_probs(root, node_data, leakage, b0_full, H)` — for
+  each `j ∈ {0..H}`, runs a backward post-order DP over the fixed-policy
+  tree computing `I_k^j(s)` = worst-case probability the trajectory stays
+  inside `(S_in, Z_in)` for the remaining `j − k` steps from `h_k` with
+  state `s`. Under rectangularity, each non-terminal node's DP factors into
+  two nested `TVBallLinearMinLP` calls (inner per-`s'` over `P_Z`, outer
+  per-`s` over `P_T`). Also added `obs_min_over_TV_ball` /
+  `state_min_over_TV_ball` LP-wrapper methods on `LeakageComputer` so the
+  DP reuses the persistent solvers.
+- **Terminal-node convention — the load-bearing math call this session.**
+  At an aborted node `h_k` with `k < j`, set `I_k^j(s) = 1` for all
+  `s ∈ S_in`. Justification (after I got it wrong twice and Tomer caught
+  me): aborted paths have zero V mismatch at depth `j > k` (the path ended;
+  V_full and V_proj both have nothing at depth `j > k` from this path), so
+  the leakage contribution should be exactly 0 — which `I = 1 → (1 − I) = 0`
+  encodes. Reward-agnostic: the depth-`k` mismatch at the abort node IS
+  handled separately by the inside-mismatch path (`Δ_b + Σ Δ_K^rob`), so
+  the convention doesn't depend on `R[s, ABORT]`. My earlier "requires
+  R = 0" framing was wrong — I conflated the depth-`k` V-mismatch (handled
+  by inside-mismatch) with the depth-`j > k` leakage (which is just 0).
+  Smoke verifies: backward DP exactly matches a nominal forward DP that
+  freezes aborted mass; full support → `phi_j = 1`; robust ≤ nominal;
+  monotonicity `phi_{j+1} ≤ phi_j`.
+- **Phase 6 sub-step 3 (certificate assembly, Eq. 74).** Two new files:
+  `src/robust_pomdp/bounds/belief_mismatch.py` (closed-form
+  `delta_b = 2(1 − m_in)`, derived in docstring as renorm-gap + dropped-
+  mass = `(1 − m_in) + (1 − m_in)`); and `certificate.py` with
+  `compute_certificate(...)` returning a dict with `certificate`,
+  `delta_b`, `max_path_sum_delta_K` (length H+1), `phi`,
+  `leakage_per_depth`, `per_depth_bound`, `R_max`, `m_in`.
+- **Three design calls in sub-step 3.**
+  - **`delta_K` aggregation in a branching tree**: max-of-sum over
+    root-to-depth-`j` paths (tighter than sum-of-max-per-depth, which
+    stitches deltas from histories that never co-occur on a real
+    trajectory — Tomer pushed back hard on me when I offered both as peer
+    options). Implementation: tree-walk tracking running sum at each node.
+  - **`j` range**: `j = 0..H` inclusive, BUT at `j = 0` use only
+    `R_max · delta_b` (drop the `(1 − phi_0) = (1 − m_in)` leakage term,
+    since it's already inside `delta_b`'s out-of-support piece). For
+    `j ≥ 1`, full formula `R_max · [delta_b + max_path_sum[j] + (1 − phi_j)]`.
+  - **`R_max`**: auto-derived as `max(|R.min()|, |R.max()|)` per the paper.
+- **Validity smoke passes.** `experiments/a1/smoke_test/phase6_certificate_smoke.py`
+  builds full + projected trees, computes `V_full` and `V_proj` via
+  `evaluate_robust_value`, asserts `cert ≥ true_error` in all three
+  regimes:
+  - ρ=0 + full support → cert = 0, true_error = 0.
+  - ρ=0 + partial support (S_in=[0,1], Z_in=[0,1]): V_full=3.70,
+    V_proj=9.14, true_error=5.44, cert=213.88 (~40× loose).
+  - ρ=0.1 + same partial support: V_full=0.52, V_proj=5.94,
+    true_error=5.43, cert=489.69 (~90× loose).
+  The looseness is expected (Eq. 47 decoupling + per-depth max aggregation
+  + delta_b/leakage overlap at j ≥ 1) — Phase 7's sweeps will quantify it.
+- **Two workflow corrections persisted to `feedback_working_guidelines.md`.**
+  - "Default to the tightest valid form from the paper; don't soft-pitch
+    looser alternatives as peer options." Triggered by my sum-of-max
+    proposal. Tomer: *"you are saving code lines on me? i dont understand
+    your attitude."* Math IS the contribution; code-LOC isn't a real
+    trade-off at our scale.
+  - "Don't bundle orthogonal design questions into a 'pick from 1/2/3'
+    ask." Triggered by me lumping three independent calls (aggregation +
+    j range + R_max) under one umbrella prompt. Tomer asked them
+    separately, one at a time.
+- **Handoff updated** at Tomer's request: next session begins with him
+  walking through `phase6_certificate_smoke.py` manually to verify the
+  certificate end-to-end before Phase 7 starts.
+- **Files this session (uncommitted at /session-end).**
+  - New: `src/robust_pomdp/bounds/{inside_trajectory,belief_mismatch,certificate}.py`
+  - Modified: `src/robust_pomdp/bounds/leakage.py` (+ 2 LP-wrapper methods)
+  - New: `experiments/a1/smoke_test/{phase6_inside_traj_smoke,phase6_certificate_smoke}.py`
+  - Modified: `.thesis/feedback_working_guidelines.md` (2 new bullets)
+  - Modified: `.thesis/handoff.md` (replaced Phase 5 mid-impl handoff with
+    Phase 6 wrap-up + manual-walkthrough note; gitignored, not committed)
+  - Note: prior-session files (Phase 5 implementation + Phase 6 sub-step 1)
+    are also untracked and being swept into this commit.
+- **Next session.** Tomer manually walks through
+  `phase6_certificate_smoke.py` — the printout includes `delta_b`, `R_max`,
+  `m_in`, `phi`, `max_path_sum_delta_K`, and `per_depth_bound` per test.
+  After he's satisfied, Phase 7 starts: `experiments/a1/run_a1.py` CLI
+  sweep driver (build full tree once, sweep projection levels via
+  `support_picker`, compute certificate + V_proj per `m`, append CSV row).
+
 ### 2026-05-24 — Session 17: A1 Phases 1-4 implementation + Phase 5 design pause
 
 - **Implementation plan written + plan mode workflow.** After Explore + Plan
