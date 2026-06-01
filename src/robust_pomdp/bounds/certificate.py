@@ -8,22 +8,22 @@ For a fixed-policy projected tree (Phase 4's tree_evaluator), combines:
 
 into the per-depth bound:
 
-    cert_0 = R_max * delta_b
-    cert_j = R_max * [delta_b + max-of-sum-of-delta_K-over-paths-to-depth-j + (1 - phi_j)]
-             for j in 1..H
+    cert_j = R_max * [max-of-sum-of-delta_K-over-paths-to-depth-j + (1 - phi_j)]
+             for j in 0..H
 
     certificate = Sum_{j=0..H} cert_j
 
+Delta_b = 0: the projected belief is the UNNORMALIZED restriction of b to the
+support (b_hat = b on S_in), so the in-support belief mismatch vanishes. All
+belief leakage is carried by the omitted-trajectory term (1 - phi_j), now
+charged at every depth j=0..H. The j=0 term is exactly the initial out-of-
+support mass (1 - phi_0 = 1 - m_in); at j=0 there is no kernel step so
+max_path_sum[0] = 0.
+
 The per-depth delta_K aggregator is **max-of-sum over root-to-depth-j paths**:
-for each depth-j node in the tree, compute Sum_{k<j} delta_K_rob_split(pi(h_k))
+for each depth-j node in the tree, compute Sum_{k<j} delta_K_rob(pi(h_k))
 along the root-to-node path, then take the max. Tighter than sum-of-max-per-
 depth (which stitches deltas from non-co-occurring histories).
-
-j=0 drops the leakage term because the depth-0 reward depends only on the
-initial belief (no transitions, no observations have happened yet), so the
-mismatch is bounded by R_max * delta_b alone. Including (1 - phi_0) on top
-would double-count the out-of-support initial belief mass that's already in
-delta_b.
 
 R_max is auto-derived from model.R as max(|R.min()|, |R.max()|).
 
@@ -39,6 +39,7 @@ import numpy as np
 from robust_pomdp import TabularPOMDP
 from robust_pomdp.bounds.belief_mismatch import delta_b as compute_delta_b
 from robust_pomdp.bounds.delta_k import DeltaKComputer
+from robust_pomdp.bounds.delta_k_exact import DeltaKExactOrthant
 from robust_pomdp.bounds.inside_trajectory import compute_inside_traj_probs
 from robust_pomdp.bounds.leakage import LeakageComputer
 from robust_pomdp.core.tree import HistoryNode
@@ -53,6 +54,9 @@ def compute_certificate(root: HistoryNode,
                         Z_in: list[int],
                         b0_full: np.ndarray,
                         H: int,
+                        *,
+                        delta_k_mode: str = "split",
+                        delta_k_max_free_bits: int = 16,
                         ) -> dict:
     """Compute Eq. 74 certificate components and the total bound on
     |V_full - V_proj|. Returns dict with keys:
@@ -63,30 +67,55 @@ def compute_certificate(root: HistoryNode,
       - 'phi': inside-trajectory probabilities, length H+1.
       - 'leakage_per_depth': [1 - phi_j], length H+1.
       - 'per_depth_bound': per-j contribution to certificate, length H+1.
+      - 'delta_b_contribution': total R_max-scaled delta_b mass in the
+            certificate (charged at every depth j=0..H).
+      - 'delta_K_contribution': total R_max-scaled kernel-mismatch mass
+            (depths j=1..H).
+      - 'leakage_contribution': total R_max-scaled omitted-trajectory mass
+            (depths j=1..H). These three sum to 'certificate'.
       - 'R_max': auto-derived from model.R.
       - 'm_in': in-support belief mass.
     """
     b0_full = np.asarray(b0_full, dtype=np.float64)
     R_max = float(max(abs(model.R.min()), abs(model.R.max())))
 
-    db = compute_delta_b(b0_full, S_in)
+    # In-support belief mismatch vs the projected root belief the tree actually
+    # used (node_data[root.id].belief). Computed explicitly so it stays correct
+    # under any projected-belief definition: 0 for the unnormalized restriction,
+    # the renorm gap (1 - m_in) if renormalized. Out-of-support mass is leakage.
+    db = compute_delta_b(b0_full, node_data[root.id].belief, S_in)
     m_in = float(sum(b0_full[s] for s in S_in))
 
-    dk_computer = DeltaKComputer(model, uncertainty, S_in, Z_in)
+    if delta_k_mode == "split":
+        dk = DeltaKComputer(model, uncertainty, S_in, Z_in)
+        delta_k_rob_fn = dk.delta_k_rob_split
+    elif delta_k_mode == "exact":
+        dk = DeltaKExactOrthant(model, uncertainty, S_in, Z_in,
+                                max_free_bits=delta_k_max_free_bits)
+        delta_k_rob_fn = dk.delta_k_rob_exact
+    else:
+        raise ValueError(f"delta_k_mode must be 'split' or 'exact', got {delta_k_mode!r}")
     leakage_comp = LeakageComputer(model, uncertainty, S_in, Z_in)
 
-    max_path_sum = _max_path_sum_delta_k(root, node_data, dk_computer, H)
+    max_path_sum = _max_path_sum_delta_k(root, node_data, delta_k_rob_fn, H)
     phi = compute_inside_traj_probs(root, node_data, leakage_comp, b0_full, H)
     leakage_per_depth = [1.0 - p for p in phi]
 
-    per_depth_bound: list[float] = []
-    for j in range(H + 1):
-        if j == 0:
-            per_depth_bound.append(R_max * db)
-        else:
-            per_depth_bound.append(
-                R_max * (db + max_path_sum[j] + leakage_per_depth[j])
-            )
+    # Per-depth bound. db (in-support belief mismatch) is charged at every depth
+    # j=0..H (it propagates through the D_k recursion); leakage (1 - phi_j) also
+    # at every j -- the j=0 leakage is the initial out-of-support mass 1 - m_in,
+    # and at j=0 there is no kernel step so max_path_sum[0] = 0. Under the
+    # unnormalized-restriction projected belief db == 0, so this reduces to
+    # delta_K + leakage; db is kept in the formula so it stays correct if the
+    # projected-belief definition changes.
+    per_depth_bound: list[float] = [
+        R_max * (db + max_path_sum[j] + leakage_per_depth[j]) for j in range(H + 1)
+    ]
+
+    # Component contributions (these three sum to 'certificate').
+    delta_b_contribution = R_max * db * (H + 1)
+    delta_K_contribution = R_max * float(sum(max_path_sum[1:]))  # max_path_sum[0] is 0
+    leakage_contribution = R_max * float(sum(leakage_per_depth))  # all j incl. j=0
 
     return {
         "certificate": float(sum(per_depth_bound)),
@@ -95,6 +124,9 @@ def compute_certificate(root: HistoryNode,
         "phi": phi,
         "leakage_per_depth": leakage_per_depth,
         "per_depth_bound": per_depth_bound,
+        "delta_b_contribution": delta_b_contribution,
+        "delta_K_contribution": delta_K_contribution,
+        "leakage_contribution": leakage_contribution,
         "R_max": R_max,
         "m_in": m_in,
     }
@@ -102,7 +134,7 @@ def compute_certificate(root: HistoryNode,
 
 def _max_path_sum_delta_k(root: HistoryNode,
                           node_data: dict,
-                          dk_computer: DeltaKComputer,
+                          delta_k_rob_fn,
                           H: int,
                           ) -> list[float]:
     """For each j in 0..H, returns max over root-to-depth-j paths in the tree
@@ -121,7 +153,7 @@ def _max_path_sum_delta_k(root: HistoryNode,
         if data.is_terminal or k >= H:
             return
         a = data.policy_action
-        contrib = dk_computer.delta_k_rob_split(a)
+        contrib = delta_k_rob_fn(a)
         action_node = node.children[a]
         for child in action_node.children.values():
             _walk(child, current_sum + contrib)

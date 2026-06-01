@@ -41,15 +41,14 @@ class NodeData:
 
 
 def project_belief(b_full: np.ndarray, S_in_sorted: list[int]) -> np.ndarray:
-    """Restrict a full-S belief to S_in and renormalize.
-
-    Uniform fallback if all original mass lies outside S_in.
+    """Restrict a full-S belief to S_in WITHOUT renormalizing: the projected
+    belief is the unnormalized sub-probability b_hat(s) = b(s) for s in S_in
+    (sums to the in-support mass m_in <= 1), parallel to the projected
+    P_T^in / P_Z^in models. Makes the in-support belief mismatch Delta_b = 0;
+    the dropped mass (1 - m_in) is belief leakage carried by the omitted-
+    trajectory term, not by Delta_b.
     """
-    b_proj = np.asarray(b_full)[S_in_sorted]
-    total = b_proj.sum()
-    if total <= 0:
-        return np.full(len(S_in_sorted), 1.0 / len(S_in_sorted))
-    return b_proj / total
+    return np.asarray(b_full, dtype=np.float64)[S_in_sorted].copy()
 
 
 def projected_bayes_update(belief: np.ndarray,

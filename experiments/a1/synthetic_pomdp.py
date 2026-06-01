@@ -33,14 +33,17 @@ ACTION_NAMES = ("inspect", "proceed", "mitigate", "abort")
 @dataclass(frozen=True)
 class RewardSpec:
     """Reward defaults per the A1 design PDF (costs stored positive)."""
-    inspect_cost: float = 1.0
-    proceed_safe: float = 10.0
-    proceed_risky_cost: float = 20.0
-    proceed_cat_cost: float = 100.0
-    mitigate_safe_cost: float = 2.0
-    mitigate_risky_cost: float = 8.0
-    mitigate_cat_cost: float = 30.0
-    abort: float = 0.0
+    inspect_cost: float        = 1.0
+
+    proceed_safe: float        = 5.0
+    proceed_risky_cost: float  = 5.0
+    proceed_cat_cost: float    = 10.0
+
+    mitigate_safe_cost: float  = 2.0
+    mitigate_risky_cost: float = 2.0
+    mitigate_cat_cost: float   = 5.0
+
+    abort: float               = 0.0
 
 
 def class_sizes(N: int,
@@ -68,8 +71,10 @@ def make_synthetic_pomdp(N: int,
                          inspect_drift: float = 0.10,
                          proceed_drift_1: float = 0.20,
                          proceed_drift_2: float = 0.05,
-                         mitigate_drift: float = 0.20,
+                         mitigate_drift: float = 0.75,
                          obs_noise: float = 0.5,
+                         warning_low: float = 0.4,
+                         warning_high: float = 0.75,
                          rewards: RewardSpec | None = None
                          ) -> TabularPOMDP:
     """Build the synthetic ordered-risk TabularPOMDP per the A1 design PDF.
@@ -88,7 +93,7 @@ def make_synthetic_pomdp(N: int,
         raise ValueError(f"M must be >= 2, got {M}")
 
     rewards = rewards or RewardSpec()
-    n_safe, n_risky, _n_cat = class_sizes(N, risk_fractions)
+    n_safe, n_risky, n_cat = class_sizes(N, risk_fractions)
 
     T = np.zeros((N, N_ACTIONS, N), dtype=np.float64)
     for s in range(N):
@@ -105,8 +110,26 @@ def make_synthetic_pomdp(N: int,
         T[s, ABORT, s] = 1.0
 
     O = np.zeros((N, M), dtype=np.float64)
+    # Class-aware obs targets driven by the warning-policy thresholds:
+    #   safe class -> z in [0, low_z], risky -> [low_z+1, high_z], cat -> [high_z+1, M-1].
+    # Target sub-ranges extend by +/-0.5 around the integer obs cells so that the
+    # dominant z at the boundary state matches the class's obs range.
+    # Safe anchors first state at z=0; cat anchors last state at z=M-1; risky uses
+    # cell-centers (symmetric).
+    low_z = int(np.floor(warning_low * (M - 1)))
+    high_z = int(np.floor(warning_high * (M - 1)))
+    safe_tgt_hi = low_z + 0.5
+    risky_tgt_lo, risky_tgt_hi = low_z + 0.5, high_z + 0.5
+    cat_tgt_lo = high_z + 0.5
     for s in range(N):
-        target = round((s / (N - 1)) * (M - 1))
+        if s < n_safe:
+            target = (s / n_safe) * safe_tgt_hi
+        elif s < n_safe + n_risky:
+            p = s - n_safe
+            target = risky_tgt_lo + ((p + 0.5) / n_risky) * (risky_tgt_hi - risky_tgt_lo)
+        else:
+            p = s - n_safe - n_risky
+            target = cat_tgt_lo + ((p + 1) / n_cat) * (M - 1 - cat_tgt_lo)
         raw = np.exp(-np.abs(np.arange(M) - target) / obs_noise)
         O[s, :] = raw / raw.sum()
 

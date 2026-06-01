@@ -24,9 +24,7 @@ def uniform_pick(target_fraction: float, N: int) -> list[int]:
         return []
     if target_fraction >= 1.0:
         return list(range(N))
-    K = int(round(target_fraction * N))
-    if K <= 0:
-        return []
+    K = max(1, int(round(target_fraction * N)))
     if K >= N:
         return list(range(N))
     return np.linspace(0, N, K, endpoint=False).astype(int).tolist()
@@ -50,9 +48,7 @@ def exponential_decay_pick(target_fraction: float,
         return []
     if target_fraction >= 1.0:
         return list(range(N))
-    K_total = int(round(target_fraction * N))
-    if K_total <= 0:
-        return []
+    K_total = max(1, int(round(target_fraction * N)))
     if K_total >= N:
         return list(range(N))
     if n_bins < 1:
