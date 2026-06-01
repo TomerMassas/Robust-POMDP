@@ -6,6 +6,115 @@ originSessionId: 60e505b2-035f-4545-ad11-905ae1961031
 ---
 ## Session Log
 
+### 2026-06-01 — Session 19: A1 exploration tooling + EXACT Delta_K + unnormalized-belief redefinition
+
+Long session. Started from the Session-18 handoff (manual walkthrough of the
+certificate smoke), then built out exploration tooling, an exact Delta_K
+ground-truth tool, and a load-bearing theory change to the belief definition.
+All code committed mid-session in `aecf1f1`.
+
+- **Handoff closed.** Tomer manually walked `phase6_certificate_smoke.py`,
+  confirmed, handoff archived. Added tree-viz HTML output to that smoke
+  (`phase6_cert_tree_{full,projected}.html`) and removed a tautological
+  assertion (`V_proj_z_fullsup` was recomputing `V_full` — dropped).
+
+- **Synthetic POMDP model revisions** (several design calls):
+  - `mitigate_drift` 0.20 -> 0.75: MITIGATE is an active risk-reduction action,
+    so the drift IS the wanted behavior; 0.20 was too weak to recover within H.
+  - Reward rebalance via `RewardSpec`: `mitigate_risky_cost` 8 -> 2,
+    `mitigate_cat_cost` 30 -> 20. Discussion concluded uniform-ish action cost
+    is cleanest; PROCEED carries the state-dependent value.
+  - **Observation model is now class-aware.** Old model used a linear
+    state-index -> obs-index map (`round(s/(N-1)*(M-1))`) that didn't respect
+    safe/risky/cat class boundaries. New scheme: warning-threshold-driven obs
+    ranges (safe -> [0, low_z], risky -> [low_z+1, high_z], cat ->
+    [high_z+1, M-1]) with a smooth intra-class gradient (safe anchors first
+    state at z=0, cat anchors last at z=M-1). New kwargs `warning_low`,
+    `warning_high` on `make_synthetic_pomdp` (kept in sync with the policy).
+
+- **Single-run driver: `experiments/a1/config.py` + `main.py`.** `A1Config`
+  dataclass exposes every knob (sizes, support via picker OR explicit S_in/Z_in,
+  policy thresholds, risk_fractions [None=default], action drifts, obs_noise, H,
+  rho_T/rho_Z, full RewardSpec, belief shape, delta_k_mode, output controls).
+  `main.py` builds full+projected trees, computes V_full/V_proj/certificate,
+  prints a component breakdown, writes tree HTMLs. Relative `out_dir` resolves
+  against `experiments/a1/`.
+
+- **`support_picker` fix**: floor `K >= 1` for any positive `target_fraction`
+  in both pickers (was returning `[]` for small m, e.g. m_Z=0.1 on M=5 ->
+  round(0.5)=0 -> `ProjectedTVBall(n=0)` crash).
+
+- **Sweep tooling: `runs/sweep_support_size/run.py`.** Fan-plot sweep over joint
+  support fraction (m_S=m_Z). Versioned outputs (`data_V{n}.csv`,
+  `fan_plot_V{n}.png`) so runs don't overwrite. Added `plot_only(version)` to
+  re-plot from a saved CSV without re-running the sweep.
+
+- **Certificate component breakdown.** `compute_certificate` now returns
+  `delta_b_contribution`, `delta_K_contribution`, `leakage_contribution`
+  (sum to `certificate`). Printed in `main` (with %), and as sweep CSV columns.
+
+- **EXACT Delta_K (paper Eq. 71) — `src/robust_pomdp/bounds/delta_k_exact.py`.**
+  - Motivation: the Eq. 47 split (`DeltaKComputer`) is a loose upper bound
+    (triangle-inequality decoupling + independent sups sharing no T_hat).
+  - Method: `||x||_1 = max_sigma <sigma,x>`, swap the two maxima ->
+    `Delta_K = max_sigma [FullSup(sigma) - ProjInf(sigma)]`. For fixed sigma,
+    rectangularity makes both inner problems linear-over-a-ball (reuses the
+    existing LP wrappers). Naive enumeration over `2^(|S_in|*|Z_in|)` sign
+    patterns; `max_free_bits=16` guard.
+  - **Verification caught a real definitional bug**: I first summed over the
+    full `Z x S` (including leakage), which made exact > split at rho=0. Fixed
+    to **in-support `Z_in x S_in` only** -- Delta_K feeds the inside-mismatch
+    (Eq. 25/72); leakage is the SEPARATE omitted term. After the fix all 4
+    checks pass (rho=0 -> 0; exact <= split; monotone; brute-force gold 2x2 +
+    random 3x3).
+  - **Measurement**: split overestimates Delta_K by ~30-60% (exact/split
+    ~0.61-0.78). On a small config, swapping exact for split tightened the
+    total certificate ~9% (delta_K is ~40-60% of it; delta_b/R_max dominate the
+    rest).
+  - Wired `delta_k_mode` ("split"/"exact") + `delta_k_max_free_bits` through
+    config -> main -> `compute_certificate` (callable seam in
+    `_max_path_sum_delta_k`).
+  - Timing measured: ~2.1x per +1 free_bit; free_bits=16 ~2 min/action,
+    20 ~40 min/action. Naive enum is exponential in BOTH |S_in| and |Z_in|.
+  - The polynomial-in-|S_in| method (for big |S_in|, small |Z_in|) is sketched
+    but NOT built -- needs an on-paper positivity-clip proof first.
+
+- **Belief redefinition (theory change; Tomer updating the paper).**
+  - Projected belief is now the **unnormalized restriction** `b_hat(s)=b(s)`
+    for s in S_in, 0 else (sub-probability summing to m_in) -- parallel to the
+    projected P_T^in / P_Z^in models.
+  - `Delta_b` redefined as the IN-SUPPORT mismatch -> **0** under this
+    definition. The dropped mass (1 - m_in) is belief leakage, carried by the
+    omitted term at j=0. This removes the prior over-counting (old normalized
+    `Delta_b = 2(1-m_in)` was charged at every depth AND overlapped the leakage
+    term -> effectively triple-counted the initial out-of-support mass).
+  - `project_belief` stops renormalizing; `projected_bayes_update` UNCHANGED.
+    Verified (by reading `compute_robust_q`) that the downstream renormalization
+    CANCELS against the in-support obs likelihood in the backup, so storing
+    normalized child beliefs is correct -- only the ROOT scale needed changing.
+    (Corrected my own earlier wrong suggestion to unnormalize throughout, which
+    would double-count leakage.)
+  - `compute_certificate` restructured: drop the special j=0 case, charge
+    leakage at all j=0..H. `delta_b` kept in the per-depth formula (=0 now) for
+    generality. `delta_b` computed EXPLICITLY (b_full vs the actual projected
+    root belief `node_data[root.id].belief` over the support), not hardcoded --
+    stays correct if the belief definition changes later (per Tomer's request).
+  - Consequence: V_proj is now the unnormalized/leaking value (paper Eq. 17);
+    numerically smaller, true_error larger, but the certificate still bounds it.
+    All smokes pass; validity holds in every regime.
+  - POMCP/Tiger path untouched (`robust_pomcp.py` not modified; `project_belief`
+    is A1-only).
+
+- **Key insight**: the exact-Delta_K verification suite earned its keep --
+  caught the in-support-vs-full-ZxS definitional bug before we trusted the tool.
+
+- **Open / next.**
+  - Polynomial exact Delta_K (big |S_in|, small |Z_in|): work the
+    positivity-clip proof on paper, then implement.
+  - Paper draft: write up the unnormalized-belief definition, Delta_b=0, and
+    leakage-at-all-j certificate form.
+  - More exploratory sweeps/plots (rho sweep, decay sweep) as Tomer drives.
+
 ### 2026-05-28 — Session 18: Phase 6 sub-steps 2 + 3 (inside-trajectory DP, certificate assembly)
 
 Picked up mid-Phase 6 (sub-step 1 leakage primitives already done in a prior
