@@ -82,7 +82,7 @@ def plot_fan(results, out_path, title):
     lower = [v - c for v, c in zip(V_proj, cert)]
 
     fig, ax = plt.subplots(figsize=(9, 5.5))
-    # ax.fill_between(m_S, lower, upper, alpha=0.2, color="tab:blue",label="V_proj +/- certificate")
+    ax.fill_between(m_S, lower, upper, alpha=0.2, color="tab:blue",label="V_proj +/- certificate")
     ax.plot(m_S, V_proj, marker="o", color="tab:blue", label="V_proj")
     ax.axhline(V_full, color="black", linestyle="--",label=f"V_full = {V_full:.3f}")
     ax.set_xlabel("m_S (projected state fraction)")

@@ -93,11 +93,16 @@ def compute_certificate(root: HistoryNode,
         dk = DeltaKExactOrthant(model, uncertainty, S_in, Z_in,
                                 max_free_bits=delta_k_max_free_bits)
         delta_k_rob_fn = dk.delta_k_rob_exact
+    elif delta_k_mode == "none":
+        delta_k_rob_fn = None   # Delta_K term disabled: certificate = leakage only
     else:
-        raise ValueError(f"delta_k_mode must be 'split' or 'exact', got {delta_k_mode!r}")
+        raise ValueError(f"delta_k_mode must be 'split', 'exact' or 'none', got {delta_k_mode!r}")
     leakage_comp = LeakageComputer(model, uncertainty, S_in, Z_in)
 
-    max_path_sum = _max_path_sum_delta_k(root, node_data, delta_k_rob_fn, H)
+    if delta_k_rob_fn is None:
+        max_path_sum = [0.0] * (H + 1)
+    else:
+        max_path_sum = _max_path_sum_delta_k(root, node_data, delta_k_rob_fn, H)
     phi = compute_inside_traj_probs(root, node_data, leakage_comp, b0_full, H)
     leakage_per_depth = [1.0 - p for p in phi]
 

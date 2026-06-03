@@ -58,9 +58,11 @@ class A1Config:
     rho_T: float = 0.1
     rho_Z: float = 0.1
 
-    # --- Delta_K mode: "split" (Eq.47 upper bound, scalable) or "exact"
-    #     (Eq.71 sign-orthant, small support only: |S_in|*|Z_in| <= max_free_bits) ---
-    delta_k_mode: str = "exact" # exact , split
+    # --- Delta_K mode: "split" (Eq.47 upper bound, scalable), "exact"
+    #     (Eq.71 sign-orthant, small support only: |S_in|*|Z_in| <= max_free_bits),
+    #     or "none" (Delta_K term disabled -> certificate = leakage only;
+    #     previews the adjusted theory pending the paper update) ---
+    delta_k_mode: str = "none" # exact , split , none
     delta_k_max_free_bits: int = 16
 
     # --- Output controls ---
