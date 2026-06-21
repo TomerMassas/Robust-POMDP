@@ -29,7 +29,7 @@ from robust_pomdp.uncertainty.uncertainty_sets import TVDistance, uniform_uncert
 
 from synthetic_pomdp import ABORT, ACTION_NAMES, make_initial_belief, make_synthetic_pomdp
 from tree_evaluator import build_policy_tree_by_path, evaluate_robust_value
-from greedy_solver import solve_full_greedy
+from greedy_solver import solve_with_root_actions
 from config import A1Config
 
 from viz.tree_viz import render_tree_to_html
@@ -70,10 +70,15 @@ def build_reference(cfg: A1Config) -> dict:
 
     uncertainty = uniform_uncertainty(cfg.N, model.n_actions, cfg.rho_T, cfg.rho_Z, TVDistance(),)
 
-    v_full, pi_full = solve_full_greedy(model, uncertainty, b0, cfg.H, abort_action=ABORT)
+    v_full, q_root, pi_by_root_action = solve_with_root_actions(
+        model, uncertainty, b0, cfg.H, abort_action=ABORT)
+    best_a = max(q_root, key=q_root.get)
+    pi_full = pi_by_root_action[best_a]
     r_max = float(max(abs(model.R.min()), abs(model.R.max())))
     return dict(model=model, b0=b0, uncertainty=uncertainty,
-                V_full=v_full, pi_full=pi_full, R_max=r_max, H=cfg.H)
+                V_full=v_full, pi_full=pi_full,
+                q_root=q_root, pi_by_root_action=pi_by_root_action,
+                R_max=r_max, H=cfg.H)
 
 
 def evaluate_projection(ref: dict, S_in: list[int], Z_in: list[int]) -> dict:

@@ -68,7 +68,7 @@ class A1Config:
     # replacement, deduped -> |support| <= K). n_seeds: number of random seeds
     # the sampler sweep averages/scatters over; seed: base RNG seed.
     K: int = 3
-    n_seeds: int = 10
+    n_seeds: int = 5
     seed: int = 0
 
     # ================= Output =================
