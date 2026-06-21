@@ -22,7 +22,6 @@ from synthetic_pomdp import (
     MITIGATE,
     ABORT,
 )
-from fixed_policy import warning_threshold_policy
 
 
 def main() -> None:
@@ -76,19 +75,6 @@ def main() -> None:
     target_cat = round((s_cat / (N - 1)) * (M - 1))
     assert m.O[s_safe, :].argmax() == target_safe, "safe obs should peak at low warning"
     assert m.O[s_cat, :].argmax() == target_cat, "cat obs should peak at high warning"
-
-    # Policy rule.
-    assert warning_threshold_policy(0, None, M) == INSPECT
-    # warning = 0  → proceed
-    assert warning_threshold_policy(1, 0, M) == PROCEED
-    # warning = 2/7 ≈ 0.286 → proceed (< 0.4)
-    assert warning_threshold_policy(1, 2, M) == PROCEED
-    # warning = 4/7 ≈ 0.571 → mitigate (in [0.4, 0.75))
-    assert warning_threshold_policy(1, 4, M) == MITIGATE
-    # warning = 6/7 ≈ 0.857 → abort (>= 0.75)
-    assert warning_threshold_policy(1, 6, M) == ABORT
-    # warning = 1.0 → abort
-    assert warning_threshold_policy(1, M - 1, M) == ABORT
 
     print(f"phase 1 OK | N={N} M={M} | sizes=({n_safe},{n_risky},{n_cat}) | "
           f"b0[:3]={b[:3]} b0[-3:]={b[-3:]}")

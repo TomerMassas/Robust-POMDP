@@ -107,7 +107,8 @@ class ProjectedTVBall:
     def solve(self,
               p_nominal,
               rho: float,
-              objective_coeffs
+              objective_coeffs,
+              full_support: bool = False,
               ) -> tuple[float, np.ndarray]:
         """Minimize sum p_i * c_i over the projected TV ball.
 
@@ -116,9 +117,14 @@ class ProjectedTVBall:
                 (length n; need not sum to 1, the rest is out-of-support mass).
             rho: TV distance radius (rho >= 0).
             objective_coeffs: coefficients c_i for the objective sum p_i * c_i.
+            full_support: True when the support is the FULL space (no out-of-
+                support states). Then leakage is impossible and the projected
+                ball must reduce to the full TV ball (Sum P = 1). Pass True only
+                when n equals the total space size and p_nominal sums to 1.
 
         Returns:
-            (optimal_value, optimal_p) where optimal_p is a length-n sub-probability vector.
+            (optimal_value, optimal_p) where optimal_p is a length-n sub-probability
+            vector (a full distribution when full_support=True).
         """
         n = self.n
         p_nominal = np.asarray(p_nominal, dtype=np.float64)
@@ -150,6 +156,18 @@ class ProjectedTVBall:
 
         # Update sub-probability row: upper bound = 1 - m_nominal.
         h.changeRowBounds(n + 2, -INF, 1.0 - m_nominal)
+
+        # delta_plus (col 2n) / delta_minus (col 2n+1) model mass leaking to / from
+        # the out-of-support region. At full support there are no out-of-support
+        # states, so leakage is impossible -> cap both at 0, forcing Sum P = 1 and
+        # reducing the projected ball to the full TV ball. Reset each solve since
+        # the instance is reused across supports.
+        if full_support:
+            h.changeColBounds(2 * n, 0.0, 0.0)
+            h.changeColBounds(2 * n + 1, 0.0, 0.0)
+        else:
+            h.changeColBounds(2 * n, 0.0, INF)
+            h.changeColBounds(2 * n + 1, 0.0, INF)
 
         # Update objective coefficients:
         # objective is sum (d_plus[i] - d_minus[i]) * c[i], so cost on

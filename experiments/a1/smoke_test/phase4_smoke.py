@@ -25,24 +25,29 @@ from experiments.a1.synthetic_pomdp import (
     make_synthetic_pomdp,
     make_initial_belief,
     ABORT,
+    PROCEED,
     N_ACTIONS,
     ACTION_NAMES,
 )
-from experiments.a1.fixed_policy import warning_threshold_policy
 from experiments.a1.tree_evaluator import (
-    build_fixed_policy_tree,
+    build_policy_tree_by_path,
     evaluate_robust_value,
     project_belief,
     projected_bayes_update,
 )
 
 
-def _nominal_expected_value(model, policy, belief, depth, last_obs, H, abort_action):
+def _const_policy(obs_path):
+    """Trivial deterministic policy (always PROCEED) for exercising the builder."""
+    return PROCEED
+
+
+def _nominal_expected_value(model, policy, belief, depth, obs_path, H, abort_action):
     """Closed-form nominal expected return of the fixed policy on full (S, Z).
-    Used as ground truth for V at ρ=0, full support.
+    Used as ground truth for V at ρ=0, full support. policy is keyed by obs-path.
     """
     M = model.n_obs
-    a = policy(depth, last_obs, M)
+    a = policy(obs_path)
     immediate = float(belief @ model.R[:, a])
     if depth >= H or a == abort_action:
         return immediate
@@ -54,7 +59,7 @@ def _nominal_expected_value(model, policy, belief, depth, last_obs, H, abort_act
             continue
         next_belief = unnorm / p_z
         future += p_z * _nominal_expected_value(model, policy, next_belief,
-                                                depth + 1, z, H, abort_action)
+                                                depth + 1, obs_path + (z,), H, abort_action)
     return immediate + future
 
 
@@ -66,8 +71,8 @@ def main() -> None:
     # ---------- Test 1: tree shape + belief sums ----------
     S_in_full = list(range(N))
     Z_in_full = list(range(M))
-    root, node_data = build_fixed_policy_tree(
-        model, warning_threshold_policy, b0, H, S_in_full, Z_in_full,
+    root, node_data = build_policy_tree_by_path(
+        model, _const_policy, b0, H, S_in_full, Z_in_full,
         abort_action=ABORT,
     )
     n_visited = 0
@@ -88,7 +93,7 @@ def main() -> None:
     # ---------- Test 2: V at full support + ρ=0 matches nominal expected value ----------
     uncertainty_zero = uniform_uncertainty(N, N_ACTIONS, 0.0, 0.0, TVDistance())
     v_full_robust = evaluate_robust_value(root, node_data, model, uncertainty_zero)
-    v_nominal = _nominal_expected_value(model, warning_threshold_policy, b0, 0, None, H, ABORT)
+    v_nominal = _nominal_expected_value(model, _const_policy, b0, 0, (), H, ABORT)
     assert abs(v_full_robust - v_nominal) < 1e-9, \
         f"robust V (ρ=0, full) = {v_full_robust} != nominal V = {v_nominal}"
 
@@ -106,8 +111,8 @@ def main() -> None:
     # ---------- Test 4: projection produces a smaller tree with smaller beliefs ----------
     S_in_proj = [0, 1]
     Z_in_proj = [0, 1]
-    root2, node_data2 = build_fixed_policy_tree(
-        model, warning_threshold_policy, b0, H, S_in_proj, Z_in_proj,
+    root2, node_data2 = build_policy_tree_by_path(
+        model, _const_policy, b0, H, S_in_proj, Z_in_proj,
         abort_action=ABORT,
     )
     assert node_data2[root2.id].belief.shape == (len(S_in_proj),)

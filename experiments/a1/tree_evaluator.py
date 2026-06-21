@@ -28,7 +28,7 @@ from robust_pomdp.uncertainty.projected_sets import ProjectedTVBall
 from robust_pomdp.uncertainty.uncertainty_sets import UncertaintySets
 
 
-Policy = Callable[[int, "int | None", int], int]
+Policy = Callable[[tuple], int]   # obs_path (z1, ..., zk) -> action
 
 
 @dataclass
@@ -71,25 +71,28 @@ def projected_bayes_update(belief: np.ndarray,
     return new / total
 
 
-def build_fixed_policy_tree(model: TabularPOMDP,
-                            policy: Policy,
-                            b0_full: np.ndarray,
-                            H: int,
-                            S_in: list[int],
-                            Z_in: list[int],
-                            *,
-                            abort_action: int | None = None,
-                            id_counter: NodeIdCounter | None = None,
-                            ) -> tuple[HistoryNode, dict[int, NodeData]]:
-    """Build the full finite-horizon fixed-policy tree.
+def build_policy_tree_by_path(model: TabularPOMDP,
+                              policy: Policy,
+                              b0_full: np.ndarray,
+                              H: int,
+                              S_in: list[int],
+                              Z_in: list[int],
+                              *,
+                              abort_action: int | None = None,
+                              id_counter: NodeIdCounter | None = None,
+                              ) -> tuple[HistoryNode, dict[int, NodeData]]:
+    """Build the finite-horizon tree that FOLLOWS a deterministic policy keyed
+    by observation-path: policy(obs_path) -> action, where obs_path = (z1, ...,
+    zk) is the observation sequence from the root. One action per history (the
+    policy's choice), branching only over Z_in.
 
     Same code for full evaluation (S_in = full S, Z_in = full Z) and projected
     (S_in ⊂ S, Z_in ⊂ Z). The tree expands through depth H inclusive — depth-H
     nodes are terminal leaves whose V is the immediate expected reward of the
-    policy's action at that depth.
+    policy's action there.
 
-    `abort_action` (e.g. ABORT in the synthetic POMDP) makes branches end
-    early when the policy selects it. None disables that trigger.
+    `abort_action` makes branches end early when the policy selects it. None
+    disables that trigger.
 
     Returns (root, node_data) where node_data maps node.id -> NodeData.
     """
@@ -97,14 +100,13 @@ def build_fixed_policy_tree(model: TabularPOMDP,
         id_counter = NodeIdCounter()
     S_in_sorted = sorted(S_in)
     Z_in_sorted = sorted(Z_in)
-    M = model.n_obs
     node_data: dict[int, NodeData] = {}
 
-    def _expand(depth: int, last_obs: int | None, belief: np.ndarray) -> HistoryNode:
+    def _expand(depth: int, obs_path: tuple, belief: np.ndarray) -> HistoryNode:
         node = HistoryNode(id_counter.next_id(), depth)
         node.S_in = set(S_in_sorted)
 
-        a = policy(depth, last_obs, M)
+        a = policy(obs_path)
         is_terminal = (depth >= H) or (abort_action is not None and a == abort_action)
         node_data[node.id] = NodeData(belief=belief,
                                       policy_action=a,
@@ -119,13 +121,13 @@ def build_fixed_policy_tree(model: TabularPOMDP,
 
         for z in Z_in_sorted:
             child_belief = projected_bayes_update(belief, model, a, z, S_in_sorted)
-            child = _expand(depth + 1, z, child_belief)
+            child = _expand(depth + 1, obs_path + (z,), child_belief)
             action_node.children[z] = child
 
         return node
 
     b0_in = project_belief(b0_full, S_in_sorted)
-    root = _expand(depth=0, last_obs=None, belief=b0_in)
+    root = _expand(depth=0, obs_path=(), belief=b0_in)
     return root, node_data
 
 

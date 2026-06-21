@@ -428,6 +428,8 @@ def compute_robust_q(h: HistoryNode,
 
     n_z = len(Z_in)
     n_s = len(S_in)
+    full_support_obs = (n_z == model.n_obs)
+    full_support_trans = (n_s == model.n_states)
     if n_z not in lp_cache:
         lp_cache[n_z] = ProjectedTVBall(n=n_z)
     if n_s not in lp_cache:
@@ -440,7 +442,8 @@ def compute_robust_q(h: HistoryNode,
     for i, s_next in enumerate(S_in):
         p_nominal_obs = [model.observation_prob(s_next, z) for z in Z_in]
         rho_z = uncertainty.observation_radius(s_next)
-        w_val, optimal_p = lp_obs.solve(p_nominal_obs, rho_z, V_children)
+        w_val, optimal_p = lp_obs.solve(p_nominal_obs, rho_z, V_children,
+                                        full_support=full_support_obs)
         w[i] = w_val
         if logger is not None:
             obs_lp_results.append(ObsLPResult(s_next=s_next,
@@ -455,7 +458,8 @@ def compute_robust_q(h: HistoryNode,
     for i, s in enumerate(S_in):
         p_nominal_trans = [model.transition_prob(s, a, s_next) for s_next in S_in]
         rho_t = uncertainty.transition_radius(s, a)
-        sigma, optimal_p = lp_trans.solve(p_nominal_trans, rho_t, w.tolist())
+        sigma, optimal_p = lp_trans.solve(p_nominal_trans, rho_t, w.tolist(),
+                                          full_support=full_support_trans)
         Q_val += belief[i] * (model.reward(s, a) + sigma)
         if logger is not None:
             trans_lp_results.append(TransLPResult(state=s,
