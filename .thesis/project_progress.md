@@ -6,6 +6,99 @@ originSessionId: 60e505b2-035f-4545-ad11-905ae1961031
 ---
 ## Session Log
 
+### 2026-06-21 — Session 20: Leakage-only theory change + A1 replan (frozen greedy policy, two trees) + root-action Q-certificates
+
+Consolidates the post-Session-19 push (unlogged working sessions; commits
+`a923dd1` 06-03, `55f5580` + `738c6d0` 06-21). Throughline: Tomer updated the
+paper notes, the certificate became **leakage-only**, and A1 was rebuilt around
+a frozen full-robust-greedy policy evaluated on two projection schemes.
+
+- **Theory change (load-bearing) — certificate is now leakage-only.** Projected
+  belief = unnormalized restriction (Eq. 20): `b_hat(s)=b(s)` on S_in, 0 else.
+  Theorem 1 (Eq. 27):
+  `|V^rob - V_hat^rob| <= R_max * Sum_{j=t}^{t+H}[1 - inf_theta Sum_{tau in T_in} mu_hat(tau_{t:j})]`.
+  - **Delta_K removed from the run path** (kept as legacy `delta_k.py` /
+    `delta_k_exact.py`, no longer imported). **Delta_b = 0** under the
+    unnormalized restriction. The j=0 term is the initial out-of-support mass
+    `1 - m_in`; everything else is omitted-trajectory leakage.
+  - `certificate.py` slimmed to `R_max*(delta_b + (1-phi_j))` summed over depth;
+    `leakage.py` reduced to two full-TV-ball min wrappers (support encoded in the
+    coefficient vector); `inside_trajectory.py` is a per-node backward DP.
+  - **Belief-recursion cancellation** (why per-node works): in `compute_robust_q`
+    the child renormalizer is the in-support obs likelihood `P_hat(z|b,a)`, so the
+    recursion reproduces Eq. 42 (V_hat) with the ROOT belief — only the root needs
+    unnormalizing, not every node. (I floated unnormalizing throughout; Tomer
+    pushed back, correctly — that would double-count leakage.)
+
+- **ProjectedTVBall full-support bug fixed.** At full support the LP still let the
+  adversary drop mass (5.5 vs true 5.8). Added a `full_support` flag capping the
+  delta+/delta- columns to 0 so it reduces to the plain full-TV ball (Sum=1).
+  Tomer ran the standalone test himself; passed.
+
+- **A1 replan (agreed 2.1 / 2.2 / 2.3).**
+  - 2.1: plots show the trivial `+/- V_max = R_max*(H+1) = 40` envelope; the
+    certificate is informative only where the band detaches from it.
+  - 2.2: policy is the **full-robust-greedy** `pi_full(b)=argmax_a Q^rob(b,a)`,
+    solved ONCE on the full-support expectimax tree, then FROZEN and evaluated on
+    each projected sub-tree (sub-tree subset of full-tree => pi_full restricts
+    cleanly; V_full is constant across a support sweep, no recompute). Resolved
+    "isn't pruning-by-robust-Q cheating?" — we freeze the optimal policy and
+    measure how well the projection reproduces its value; we do NOT prune by the
+    bound.
+  - 2.3: two projection schemes on the same POMDP — **uniform masking**
+    (`runs/sweep_support_size`, fan plot vs m) and **per-node MCTS-style sampling**
+    (`runs/sweep_sampler`, scatter vs avg support fraction).
+
+- **Implementation.**
+  - `greedy_solver.py`: `solve_full_greedy -> (V_full, pi_full)`; refactored into
+    `_build_expectimax` + `_extract_policy`, exposing
+    `solve_with_root_actions -> (V_full, q_root, pi_by_root_action)` (one
+    expectimax solve; per-root-action continuation policies extracted).
+  - `tree_evaluator.py`: `build_policy_tree_by_path` (obs-path-keyed policy),
+    `project_belief` (unnormalized restriction), `projected_bayes_update`,
+    `evaluate_robust_value`.
+  - `sampled_projection.py`: per-node `S_in(child) ~ posterior`,
+    `Z_in(ha) ~ obs marginal`, sampled with replacement + dedup (|support| <= K);
+    root belief unnormalized, children renormalized.
+  - Per-node support wired through `compute_robust_q` (full_support flags) and the
+    leakage DP (in-support step iff `z in Z_in(ha) AND s' in S_in(child_z)`).
+    Gold test (hand-shrunk supports, backward==forward at rho=0) confirms the DP.
+
+- **Config cleanup.** Removed all delta_k args from `A1Config` (modules kept as
+  standalone legacy). Regrouped: Sizes / Synthetic-POMDP / Belief / Uncertainty
+  (shared) + Projection-uniform + Projection-sampler + Output. (YAML deferred.)
+
+- **Root-action Q-certificate experiment — `runs/root_action_bounds/`** (the
+  "can we stop planning?" plot). For each root action a, freeze
+  `pi_a = "take a, then optimal"`; `Q_full(h0,a)=q_root[a]`; per (K, seed) build
+  the sampled tree following pi_a and read `Q_proj(a)` + `eps(a)` (Theorem 1).
+  Bands `[Q_proj +/- eps]` must contain the dashed `Q_full(a)` — and do.
+  Separation = best guaranteed lower bound clears every other upper bound =>
+  "stop." x-axis switched from raw K to **average support fraction** (K kept on a
+  secondary top axis) per Tomer — more informative.
+  - **Result (rho=0.05, N=M=10, H=3):** Q_full = proceed 13.62 (=V_full), inspect
+    9.53, mitigate 9.50, abort 0. Validity holds at all K/seeds. Separation is
+    **marginal**, appearing only near frac≈0.68 (K~1024): the continuing-action
+    **cert-floor ~2.0** sits just under the proceed-vs-inspect half-gap ~2.05.
+  - **Key insight:** the stopping point is where the cert-floor (set by rho and
+    model sparsity — the adversary always leaks ~rho to states outside the nominal
+    posterior support) drops below the action-value half-gap. Smaller rho or a
+    wider value gap => earlier / cleaner separation.
+  - **Abort caveat:** pi_abort is depth-0, but the leakage cert charges the
+    initial `1-m_in` at all H+1 depths => `eps(abort)=(H+1)*R_max*(1-m_in)`,
+    ~(H+1)x loose. Valid, -> 0 as m_in->1, and **never the binding constraint**
+    (inspect/mitigate always bind). Flagged on the plot; not fixed.
+
+- **Open / next:**
+  - Re-run root-action bands at higher `n_seeds` (V4 was n_seeds=1 for iteration
+    speed) for smooth floors.
+  - rho-sweep (0.05 / 0.02 / 0.01) to visualize separation moving to smaller
+    support fraction as the cert-floor drops.
+  - Optional: tighten the abort cert to the depth-0 term; build the literal
+    POMCP tree (phase B of 2.3 — the MCTS tree is currently approximated by
+    per-node sampling).
+  - `phase1_smoke` has stale assertions from model changes — Tomer said ignore.
+
 ### 2026-06-01 — Session 19: A1 exploration tooling + EXACT Delta_K + unnormalized-belief redefinition
 
 Long session. Started from the Session-18 handoff (manual walkthrough of the
