@@ -47,7 +47,7 @@ class Config:
 
     # --- support sweep (fraction schemes) ---
     fractions: tuple[float, ...] = (0.2, 0.4, 0.6, 0.8, 1.0)
-    scheme: str = "exp_decay"                         # "uniform" | "exp_decay" | "sampler"
+    scheme: str = "sampler"                         # "uniform" | "exp_decay" | "sampler"
     decay: float = 0.5                                # exp_decay only
     n_bins: int = 10                                  # exp_decay only
 
@@ -55,6 +55,13 @@ class Config:
     K_grid: tuple[int, ...] = (1, 2, 4, 8, 16, 32, 64, 128, 256, 2048)
     n_seeds: int = 5                                  # random seeds per K (scatter)
     seed: int = 0                                     # base RNG seed
+
+    # --- CR-UCT planner (M4) ---
+    ucb_mode: str = "robust"        # "nominal" | "robust" (exploration only)
+    budget: int = 500                # simulations per planning step
+    c_ucb: float = 0.2*(2 ** 0.5)          # UCB exploration constant (tune me)
+    use_rollouts: bool = False       # nominal mode only; feeds Q_nom
+    early_stop: bool = True          # anytime certified stop
 
     # --- output ---
     out_dir: str = "results"                          # relative -> resolved next to the run script

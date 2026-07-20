@@ -28,6 +28,7 @@ from Algorithm.core.tree import HistoryNode, NodeIdCounter
 from Algorithm.core.uncertainty import UncertaintySets
 from Algorithm.ucb.backup import backup
 from Algorithm.ucb.belief import projected_bayes, restrict
+from Algorithm.ucb.certificate import eps_for_c, r_max
 
 Policy = Callable[[tuple], int]   # obs_path (z1, ..., zk) -> action
 
@@ -74,13 +75,9 @@ def eval_fixed_policy(model: TabularPOMDP,
     return _rec(0, (), restrict(b0, S_in))
 
 
-def r_max(model: TabularPOMDP) -> float:
-    """R_max = max(|R.min|, |R.max|), per the paper."""
-    return float(max(abs(model.R.min()), abs(model.R.max())))
-
-
 def certificate_eps(root: HistoryNode, b0: np.ndarray, H: int, R_max: float) -> float:
-    """Theorem-1 certificate  eps = R_max * (H - sum_{s in S_in(root)} b0[s]*c[s])."""
-    b0 = np.asarray(b0, dtype=np.float64)
-    survived = sum(b0[s] * root.c[s] for s in sorted(root.S_in))
-    return R_max * (H - survived)
+    """Theorem-1 certificate  eps = R_max * (H - sum_{s in S_in(root)} b0[s]*c[s]).
+
+    Thin wrapper over ucb.certificate.eps_for_c using the root's greedy-policy c.
+    """
+    return eps_for_c(root.c, b0, sorted(root.S_in), H, R_max)
