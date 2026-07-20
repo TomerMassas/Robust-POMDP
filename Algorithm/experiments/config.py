@@ -23,7 +23,7 @@ class Config:
     # --- domain: synthetic ordered-risk POMDP ---
     N: int = 10                                       # states
     M: int = 10                                        # observations
-    H: int = 5                                        # reward depths (0..H-1)
+    H: int = 3                                        # reward depths (0..H-1)
     risk_fractions: tuple[float, float, float] = (0.70, 0.29, 0.01)
     inspect_drift: float = 0.10
     proceed_drift_1: float = 0.20
@@ -43,7 +43,7 @@ class Config:
     rho_Z: float = 0.1
 
     # --- post-hoc experiment: which fixed policy to certify ---
-    policy: str = "greedy"                            # "warning" | "greedy"
+    policy: str = "warning"   # "warning" | "greedy"
 
     # --- support sweep (fraction schemes) ---
     fractions: tuple[float, ...] = (0.2, 0.4, 0.6, 0.8, 1.0)

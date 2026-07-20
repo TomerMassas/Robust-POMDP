@@ -168,7 +168,7 @@ def plot_posthoc(rows: list[dict], out_path: Path, title: str) -> bool:
         return False
 
     policies = list(dict.fromkeys(r["policy"] for r in rows))   # whatever's present
-    fig, axes = plt.subplots(1, len(policies), figsize=(6 * len(policies), 5),
+    fig, axes = plt.subplots(1, len(policies), figsize=(max(9, 6 * len(policies)), 5.5),
                              sharey=True, squeeze=False)
     for ax, name in zip(axes[0], policies):
         sub = sorted((r for r in rows if r["policy"] == name), key=lambda r: r["frac"])
@@ -187,15 +187,126 @@ def plot_posthoc(rows: list[dict], out_path: Path, title: str) -> bool:
         ax.grid(alpha=0.3)
         ax.legend(fontsize=8, loc="best")
     axes[0][0].set_ylabel("robust value")
-    fig.suptitle(title)
+    fig.suptitle(title, fontsize=10)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
     return True
 
 
+# --- per-node sampler (scheme="sampler") ----------------------------------------
+
+def sweep_sampler(cfg: Config) -> list[dict]:
+    """Per-node K-sampling sweep: one point per (K, seed). Same frozen policy as the
+    fraction sweep; support drawn from each node's belief (POMCP-style focusing)."""
+    model, b0, unc = cfg.build()
+    R_max = r_max(model)
+    V_max = R_max * cfg.H
+    S_all, Z_all = list(range(cfg.N)), list(range(cfg.M))
+    policy, V_full = _build_policy(cfg, model, unc, b0, S_all, Z_all)
+    lp_cache: dict = {}                       # shared persistent LPs across all trees
+
+    rows: list[dict] = []
+    for K in cfg.K_grid:
+        for seed in range(cfg.n_seeds):
+            rng = np.random.default_rng(cfg.seed + seed)
+            root = eval_sampled_policy(model, unc, policy, b0, cfg.H, int(K), rng,
+                                       ABORT, lp_cache)
+            eps = certificate_eps(root, b0, cfg.H, R_max)
+            err = abs(V_full - root.V_rob)
+            s_frac, z_frac = avg_support_fraction(root, cfg.N, cfg.M)
+            rows.append({
+                "K": int(K), "seed": int(seed),
+                "avg_state_frac": s_frac, "avg_obs_frac": z_frac,
+                "avg_frac": 0.5 * (s_frac + z_frac),
+                "V_full": V_full, "V_proj": root.V_rob, "eps": eps, "err": err,
+                "V_max": V_max, "valid": int(err <= eps + 1e-6),
+            })
+    return rows
+
+
+def _print_sampler_table(rows: list[dict]) -> None:
+    print(f"  {'K':>5} {'avg_frac':>9} {'V_proj':>9} {'eps':>9} {'|err|':>8} {'valid':>6}")
+    for K in sorted({int(r["K"]) for r in rows}):
+        sub = [r for r in rows if int(r["K"]) == K]
+        n = len(sub)
+        af = sum(r["avg_frac"] for r in sub) / n
+        vp = sum(r["V_proj"] for r in sub) / n
+        ce = sum(r["eps"] for r in sub) / n
+        er = sum(r["err"] for r in sub) / n
+        ok = all(r["valid"] for r in sub)
+        print(f"  {K:5d} {af:9.3f} {vp:9.3f} {ce:9.3f} {er:8.3f} {str(bool(ok)):>6}")
+    print()
+
+
+def plot_sampler(rows: list[dict], out_path: Path, title: str) -> bool:
+    """V_proj vs average support fraction, colored by K, with the [V_proj +/- eps]
+    certificate as error bars (clipped to +/-V_max) and the V_full / +/-V_max
+    references. Mirrors the A1 sampler plot. False if matplotlib is absent."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as e:  # matplotlib not installed
+        print(f"  (matplotlib unavailable: {e}; skipping plot)")
+        return False
+
+    Ks = sorted({int(r["K"]) for r in rows})
+    cmap = plt.get_cmap("viridis")
+    vmax, vfull = rows[0]["V_max"], rows[0]["V_full"]
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    ax.axhline(vmax, color="tab:red", ls=":", lw=1.0, label=f"+/- V_max = {vmax:.0f}")
+    ax.axhline(-vmax, color="tab:red", ls=":", lw=1.0)
+    ax.axhline(vfull, color="black", ls="--", lw=1.5, label=f"V_full = {vfull:.3f}")
+    for i, K in enumerate(Ks):
+        sub = [r for r in rows if int(r["K"]) == K]
+        x = [r["avg_frac"] for r in sub]
+        vp = np.array([r["V_proj"] for r in sub])
+        eps = np.array([r["eps"] for r in sub])
+        up = np.clip(vp + eps, -vmax, vmax) - vp
+        dn = vp - np.clip(vp - eps, -vmax, vmax)
+        color = cmap(i / max(1, len(Ks) - 1))
+        ax.errorbar(x, vp, yerr=[dn, up], fmt="o", ms=5, color=color, ecolor=color,
+                    elinewidth=1.0, alpha=0.6, capsize=2, label=f"K={K}")
+    ax.set_xlabel("average support fraction  (mean over nodes of |S_in|/N, |Z_in|/M)")
+    ax.set_ylabel("value")
+    ax.set_title(title)
+    ax.legend(loc="best", fontsize=8, ncol=2)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    return True
+
+
+def run_sampler(cfg: Config) -> bool:
+    rows = sweep_sampler(cfg)
+    print(f"Sampler sweep | N={cfg.N} M={cfg.M} H={cfg.H} "
+          f"rho_T={cfg.rho_T} rho_Z={cfg.rho_Z} n_seeds={cfg.n_seeds}")
+    print(f"  V_full = {rows[0]['V_full']:.4f}  V_max = {rows[0]['V_max']:.2f}\n")
+    _print_sampler_table(rows)
+
+    out = _out_dir(cfg)
+    v = _next_version(out, "sampler_data")
+    _write_csv(rows, out / f"sampler_data_V{v}.csv")
+    wrote_plot = False
+    if cfg.write_plot:
+        title = (f"Sampler sweep | policy={cfg.policy} | N={cfg.N} M={cfg.M} H={cfg.H} "
+                 f"rho_T={cfg.rho_T} rho_Z={cfg.rho_Z} n_seeds={cfg.n_seeds}")
+        wrote_plot = plot_sampler(rows, out / f"sampler_V{v}.png", title)
+
+    all_valid = all(r["valid"] for r in rows)
+    print(f"Wrote sampler_data_V{v}.csv" + (f" + sampler_V{v}.png" if wrote_plot else ""))
+    print(f"ALL VALID: {all_valid}   (eps floors above 0 where sampling misses states)")
+    if not all_valid:
+        raise SystemExit("SAMPLER POST-HOC VALIDITY VIOLATED")
+    return all_valid
+
+
 def run(cfg: Config | None = None) -> bool:
     cfg = cfg or Config()
+    if cfg.scheme == "sampler":
+        return run_sampler(cfg)
     rows = sweep(cfg)
     print(f"Post-hoc guarantees | N={cfg.N} M={cfg.M} H={cfg.H} "
           f"rho_T={cfg.rho_T} rho_Z={cfg.rho_Z} scheme={cfg.scheme}")
@@ -207,7 +318,7 @@ def run(cfg: Config | None = None) -> bool:
     _write_csv(rows, out / f"data_V{v}.csv")
     wrote_plot = False
     if cfg.write_plot:
-        title = (f"Post-hoc guarantees | N={cfg.N} M={cfg.M} H={cfg.H} "
+        title = (f"Post-hoc guarantees | policy={cfg.policy} | N={cfg.N} M={cfg.M} H={cfg.H} "
                  f"rho_T={cfg.rho_T} rho_Z={cfg.rho_Z} scheme={cfg.scheme}")
         wrote_plot = plot_posthoc(rows, out / f"posthoc_V{v}.png", title)
 
@@ -222,8 +333,14 @@ def run(cfg: Config | None = None) -> bool:
 def plot_only(version: int, cfg: Config | None = None) -> None:
     cfg = cfg or Config()
     out = _out_dir(cfg)
+    if cfg.scheme == "sampler":
+        rows = _read_csv(out / f"sampler_data_V{version}.csv")
+        plot_sampler(rows, out / f"sampler_V{version}.png",
+                     title=f"Sampler sweep | policy={cfg.policy} | replot V{version}")
+        print(f"Re-plotted sampler_V{version}.png")
+        return
     rows = _read_csv(out / f"data_V{version}.csv")
-    plot_posthoc(rows, out / f"posthoc_V{version}.png", title=f"Post-hoc guarantees | replot V{version}")
+    plot_posthoc(rows, out / f"posthoc_V{version}.png", title=f"Post-hoc guarantees | policy={cfg.policy} | replot V{version}")
     print(f"Re-plotted posthoc_V{version}.png")
 
 
