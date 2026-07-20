@@ -6,6 +6,114 @@ originSessionId: 60e505b2-035f-4545-ad11-905ae1961031
 ---
 ## Session Log
 
+### 2026-07-19 — Session 21: New AAAI paper (R-MCTS) read + UCB-variant planner pseudo-code (design only, no code)
+
+First session after a ~4-week gap. Entirely design/pseudo-code — **no code
+changed**. Tomer set a fresh roadmap: build the paper's **two R-MCTS planner
+variants (UCB, RUDB)**, pseudo-code first and finalized before any
+implementation, and implement in a **new folder** kept separate from the A1
+work. Focus this session: the **UCB variant** (RUDB is next).
+
+- **New paper loaded — `R_MCTS_AAAI_2027.pdf`** (14 pp incl. supplementary;
+  replaces `R_POMDP_paper.pdf`). Title: "Robust Online POMDP/MDP MCTS Planning
+  with Anytime Deterministic Guarantees." Key new content:
+  - **RUDB** (Robust Upper Deterministic Bound, Eq. 19-22 / Thm 2): apply the
+    robust Bellman *optimality* operator to the certified upper bound ->
+    deterministic upper bound on the **optimal** robust value `V*_rect`. Its
+    error term `eps` (Eq. 20/75) uses **shared** minimizing models with the
+    value term (Eq. 73) — one backup yields both.
+  - **Two solvers**: (i) UCB-exploration, POMCP-style + robust projected
+    backups, inherits the Thm-1 fixed-policy certificate, converges to the
+    robust value of its tree policy; (ii) RUDB-exploration + **exact nominal
+    belief filter**, additionally attains the optimal-value guarantee.
+  - **The RUDB decoupling** (its crux): exact belief update with the full
+    nominal transition (per-node validity, Corollary 1) + robust backups still
+    over the **projected** sets (tractability). Cost paid only in the filter.
+  - Thm 1 = leakage-only certificate `eps_0 = R_max * Sum_j (1 - phi_j)` —
+    exactly the current `compute_certificate`. Two-sided bracket `[V_hat +/-
+    eps]` -> certified action ordering, early stop, pruning.
+
+- **Baseline recap (comprehension, no change).** Wrote faithful pseudo-code of
+  the two A1 run drivers (`runs/sweep_sampler/run.py`,
+  `runs/root_action_bounds/run.py`): both thin drivers over one shared pipeline
+  — `build_reference` (full-support robust expectimax = ground truth
+  `V_full`/`q_root`) -> `build_sampled_projection_tree` (per-node MCTS-style
+  sampling) -> `evaluate_robust_value` (`V_proj`, two-step LP) ->
+  `compute_certificate` (leakage `eps`).
+
+- **UCB variant design — locked decisions** (working name **CR-UCT**, Certified
+  Robust UCT; rename free):
+  - **~= Solver A wrapped as an anytime online planner**: every-sim robust
+    projected backup -> certificate -> early-stop check.
+  - **Two exploration modes** `ucb_mode in {nominal, robust}` (existing knob):
+    nominal = sample-mean `Qbar`; robust = projected robust `Q_hat^rob`.
+    Backups, final root decision (`argmax_a Q_hat^rob`) and certificate are
+    identical across modes — mode only drives *exploration*.
+  - **Beliefs = option B only** (deterministic projected-Bayes over the sampled
+    support); **particle-count beliefs dropped entirely**. Root = unnormalized
+    restriction of `b0` (Eq. 10); children renormalized. No exact Bayes *filter*
+    (RUDB-only); the only exact belief used is root `b0`, which is all the
+    certificate reads (leakage DP uses root belief + per-node supports/actions,
+    never non-root beliefs).
+  - **Incremental action expansion** (`A_hat(h)` = explored actions; expand one
+    unexpanded action per visit, else UCB) — no full action support.
+  - **Interleaved robust backup folded into `SIMULATE`** (belief carried down,
+    robust value backed up on the way up — one recursion; Solver A's K=1 mode).
+    No separate belief-recompute pass.
+  - **Selective descent, one node per sim, NO descend-to-H** (Tomer rejected
+    descend-to-H — wastes horizon compute on uninteresting root actions). The
+    **unexpanded tail is charged as leakage**: new certificate base case — a
+    frontier node at depth `k<H` with no children -> `I=0` (fully leaked beyond
+    `k`), distinct from a genuine terminal (`I=1`). Deep/interesting branches ->
+    tight brackets, shallow ones -> loose; the certificate concentrates
+    tightness where the planner spent effort.
+  - **Leaf value = `r(b_hat,a) = Sum_s b_hat(s) R(s,a)`** (immediate reward,
+    truncated continuation). The tail *error* is a separate object living in
+    `eps`, not in the value line.
+  - **Early stopping in scope** (switchable): per-root-action bracket
+    `[Q_hat^rob(a) +/- eps(a)]` (greedy continuation); stop when one action's
+    lower bound clears every other's upper bound. Claim = best **tree-policy
+    continuation** (-> robust-greedy as support grows), *not* `V*`-optimality
+    (that's RUDB's).
+
+- **Normalization — the paper-facing explanation Tomer needed.** It's the
+  standard belief-MDP Bellman backup: renormalize each child so its value is
+  *conditional on the observation*, so the observation-weighted robust backup
+  (`min_{P_Z} Sum_z P_Z(z) V_child(z)`) reweights well-defined per-branch values
+  instead of double-counting `P(z)`. Projected value is linear in the belief, so
+  the unnormalized posterior (mass = `P_hat(z|b,a)`) already carries `P(z)`;
+  three pairings — (1) normalized+weighted OK, (2) unnormalized+summed OK
+  (= paper Eq. 11 flat sum), (3) unnormalized+weighted WRONG (double-counts ->
+  `Sum P(z)^2 V`). Code uses (1); root stays unnormalized to carry depth-0
+  leakage `1-m_in`.
+
+- **Rollouts — corrected an over-broad "no rollouts" stance.** Hard rule is
+  only: the **certified value `V_hat` and bound `eps` are computed on the
+  truncated tree** (rollout noise isn't covered by `eps` -> would break the
+  deterministic guarantee). Rollouts are fine for **exploration** — folded in as
+  optional (`ROLLOUT` helper) feeding `Q_nom` only, gated
+  `track_nominal AND use_rollouts`; never touch `BACKUP`/`V_hat`/`eps`. Fixes the
+  depth-limited `Q_nom` weakness in nominal mode. Robust mode uses no rollout (a
+  nominal rollout gives no robust tail estimate).
+
+- **Open / next.**
+  - **Finalize the UCB (CR-UCT) pseudo-code** — current draft lives in this
+    conversation only; not yet written to a file.
+  - Then **RUDB variant pseudo-code**: needs the exact-nominal-belief filter +
+    the shared-minimizer RUDB backup (Eq. 19/73-75) + optimality bracket
+    (Thm 2). New paper has the Thm 2 + Lemma 3 proofs — internalize before
+    drafting.
+  - **Only after both pseudo-codes are finalized** -> implement in a **new
+    folder** (separate from A1).
+  - Certificate change vs A1's `compute_certificate`: the frontier base case
+    (`I=0` at unexpanded depth-`k<H` nodes) — A1 trees were always full-depth so
+    it never arose.
+  - Housekeeping drift noted (not fixed): `CLAUDE.md` + `.thesis/reference_paper.md`
+    still name the old paper (`Robust_Online_POMDP paper.pdf`, "11 pages"); actual
+    is `R_MCTS_AAAI_2027.pdf` (14 pp). `docs/discussion/{04_session_log,00_resolved_decisions}.md`
+    are stale (Julia-era, stop at Session 5). `project_roadmap.md` "NEXT: Run E2"
+    is stale (A1/RUDB track now).
+
 ### 2026-06-21 — Session 20: Leakage-only theory change + A1 replan (frozen greedy policy, two trees) + root-action Q-certificates
 
 Consolidates the post-Session-19 push (unlogged working sessions; commits

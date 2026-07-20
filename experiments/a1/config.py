@@ -49,8 +49,8 @@ class A1Config:
 
     # ============ Uncertainty (shared) ============
     # TV-ball; codebase uses ||P-Q||_1 (no 1/2), so rho is 2x textbook TV.
-    rho_T: float = 0.05
-    rho_Z: float = 0.05
+    rho_T: float = 0.1
+    rho_Z: float = 0.1
 
     # ====== Projection method: UNIFORM masking (synthetic) ======
     # Same support at every node. Provide explicit S_in/Z_in to override, OR
