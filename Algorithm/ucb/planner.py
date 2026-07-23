@@ -55,7 +55,7 @@ def plan(model: TabularPOMDP,
     """Run one CR-UCT planning step from belief b0; return the chosen root action.
 
     ucb_mode drives exploration only ("nominal" -> Q_nom sample-mean, with optional
-    rollouts; "robust" -> Q_rob). The root decision and certificate use Q_rob / c in
+    rollouts; "robust" -> Q_rob). The root decision and certificate use Q_rob / delta in
     both modes.
     """
     if ucb_mode not in ("nominal", "robust"):
@@ -90,7 +90,9 @@ def plan(model: TabularPOMDP,
         unexpanded = node.unexpanded_actions(n_actions)
         if unexpanded:                                 # incremental expansion, one per visit
             a = unexpanded[0]
-            node.expand_action(a, ctr)
+            an = node.expand_action(a, ctr)
+            if node.depth == 0:                        # root belief exact -> exact immediate reward
+                an.r_exact = float(b0 @ model.R[:, a])
             return a
         log_n = math.log(node.N)                       # all expanded -> UCB (each an.N >= 1)
 

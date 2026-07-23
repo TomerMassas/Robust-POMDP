@@ -6,7 +6,7 @@ Built entirely on Algorithm.core + Algorithm.ucb (our robust_q / leakage / backu
   - H reward depths at 0..H-1, terminal at depth H-1;
   - ABORT is terminal (0 continuation);
   - next-states over S_next = children's S_in;
-  - scalar-c certificate  eps = R_max * (H - sum_s b0[s]*c[s]).
+  - Eq. 49 certificate  eps = R_max·((H-1) - Σ_s b0[s]·δ[s]).
 
 Uniform-mask projection: every history node uses the same (S_in, Z_in). A
 `max_depth` truncation leaves frontier leaves (unexpanded, non-terminal) so the
@@ -28,7 +28,7 @@ from Algorithm.core.tree import HistoryNode, NodeIdCounter
 from Algorithm.core.uncertainty import UncertaintySets
 from Algorithm.ucb.backup import backup
 from Algorithm.ucb.belief import projected_bayes, restrict
-from Algorithm.ucb.certificate import eps_for_c, r_max
+from Algorithm.ucb.certificate import eps_for_delta, r_max
 
 Policy = Callable[[tuple], int]   # obs_path (z1, ..., zk) -> action
 
@@ -51,6 +51,7 @@ def eval_fixed_policy(model: TabularPOMDP,
     """
     if lp_cache is None:
         lp_cache = {}
+    b0 = np.asarray(b0, dtype=np.float64)
     S_in = sorted(S_in)
     Z_in = sorted(Z_in)
     ctr = NodeIdCounter()
@@ -63,6 +64,8 @@ def eval_fixed_policy(model: TabularPOMDP,
         truncate = (max_depth is not None) and (depth >= max_depth) and (not terminal)
         if not truncate:
             an = node.expand_action(a, ctr)
+            if depth == 0:                      # root belief exact -> exact immediate reward
+                an.r_exact = float(b0 @ model.R[:, a])
             if not terminal:
                 an.Z_in = set(Z_in)
                 an.S_next = set(S_in)           # uniform mask: children share this support
@@ -76,8 +79,8 @@ def eval_fixed_policy(model: TabularPOMDP,
 
 
 def certificate_eps(root: HistoryNode, b0: np.ndarray, H: int, R_max: float) -> float:
-    """Theorem-1 certificate  eps = R_max * (H - sum_{s in S_in(root)} b0[s]*c[s]).
+    """Theorem-1 certificate  eps = R_max·((H-1) - Σ_{s in S_in(root)} b0[s]·δ[s])  (Eq. 49).
 
-    Thin wrapper over ucb.certificate.eps_for_c using the root's greedy-policy c.
+    Thin wrapper over ucb.certificate.eps_for_delta using the root's greedy-policy δ.
     """
-    return eps_for_c(root.c, b0, sorted(root.S_in), H, R_max)
+    return eps_for_delta(root.delta, b0, sorted(root.S_in), H, R_max)

@@ -4,8 +4,8 @@ description: Auto-load at session start — defines all the math the codebase im
 type: reference
 ---
 
-The paper is at `Robust_Online_POMDP paper.pdf` in repo root (11 pages,
-single Read call covers it). It contains the formal definitions, theorem
+The paper is at `R_MCTS_AAAI_2027.pdf` in repo root (14 pages incl.
+supplementary; single Read call covers it). It contains the formal definitions, theorem
 statements, and proofs that this codebase implements — the source of truth
 for every mathematical entity in `project_context.md`.
 

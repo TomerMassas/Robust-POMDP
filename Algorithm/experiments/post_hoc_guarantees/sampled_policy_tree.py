@@ -11,7 +11,7 @@ beliefs concentrate the support — the POMCP-style focusing.
 
 Beliefs are option-B projected-Bayes (root = unnormalized restriction of b0;
 children = posterior restricted to the sampled child support, renormalized), so
-the SAME backup / robust_q / leakage_c machinery applies unchanged. The only
+the SAME backup / robust_q / leakage_delta machinery applies unchanged. The only
 structural point vs a uniform mask: each action node's next-state support is
 S_next = union_z child_z.S_in (paper Eq. 8), set after its children are sampled.
 
@@ -66,6 +66,8 @@ def eval_sampled_policy(model: TabularPOMDP,
         a = policy(obs_path)
         terminal = (depth == H - 1) or (abort_action is not None and a == abort_action)
         an = node.expand_action(a, ctr)
+        if depth == 0:                          # root belief exact -> exact immediate reward
+            an.r_exact = float(b0 @ model.R[:, a])
         if not terminal:
             b_full = np.zeros(N, dtype=np.float64)
             b_full[S_in] = belief

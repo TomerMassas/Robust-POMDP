@@ -7,12 +7,15 @@ Finalized pseudo-code for the **UCB planner** (Milestone 4). Source: `method.doc
 **Convention.** `H` reward steps at depths `0..H-1`; a node at depth `H-1` is
 terminal (last reward step). `abort` is terminal (0 continuation). Beliefs are
 option-B projected-Bayes: root = **unnormalized** restriction of `b0` (Eq. 10),
-children renormalized. Next-state support `S_next = ⋃_z child_z.S_in`.
+children renormalized. Next-state support `S_next = ⋃_z child_z.S_in`. The root's
+immediate reward uses the **exact** `b0` (cached as `.r_exact` per root action —
+the Eq. 41 cancellation), so its depth-0 error is 0; the restricted root belief
+carries only the continuation.
 
 **Node attributes.**
 ```
-History node:  .S_in  .N  .V_rob  .c[·] (survival scalar/state, greedy policy)  .child[a]
-Action  node:  .Z_in  .S_next (sampled next-states)  .N  .Q_rob  .Q_nom  .c[·]  .child[z]
+History node:  .S_in  .N  .V_rob  .delta[·] (continuation-survival δ, greedy policy)  .child[a]
+Action  node:  .Z_in  .S_next (sampled next-states)  .N  .Q_rob  .Q_nom  .delta[·]  .r_exact  .child[z]
 ```
 
 **Modes.** `ucb_mode ∈ {nominal, robust}` drives *exploration only*: nominal uses
@@ -66,35 +69,39 @@ SIMULATE(s, node, b) -> G:                               # G consumed only if uc
 
 ```
 SELECT_ACTION(node):
-    if ∃ unexpanded action a: node.child[a] ← ActionNode(); return a
+    if ∃ unexpanded action a:
+        node.child[a] ← ActionNode()
+        if node.depth = 0: node.child[a].r_exact ← Σ_s b0(s)·R(s,a)   # exact belief at root
+        return a
     Q(a)      ← an.Q_nom if ucb_mode = nominal else an.Q_rob
     Q_norm(a) ← (Q(a) + V_max) / (2·V_max)        # V_max = R_max·H; UCB1 assumes values in [0,1]
     return argmax_{a ∈ expanded} [ Q_norm(a) + c_ucb·√(ln node.N / node.child[a].N) ]
 ```
 
-## BACKUP — robust value + survival scalar, fused
+## BACKUP — robust value + continuation-survival δ, fused
 
 ```
 BACKUP(node, b):
     for each expanded action a  (an := node.child[a]):
+        imm ← an.r_exact if an.r_exact ≠ ⊥ else Σ_{s∈node.S_in} b[s]·R(s,a)   # exact at root
         if (a is abort) ∨ (node.depth = H-1):            # genuine terminal — no leakage
-            an.Q_rob ← Σ_{s∈node.S_in} b[s]·R(s,a)
-            an.c[s]  ← (H - node.depth)   ∀ s∈node.S_in      # survives all remaining reward depths
+            an.Q_rob ← imm
+            an.delta[s] ← (H-1 - node.depth)   ∀ s∈node.S_in   # continuation survives; = 0 at depth H-1
         else if an.child = ∅:                            # frontier (not yet deepened) — tail leaks
-            an.Q_rob ← Σ_{s∈node.S_in} b[s]·R(s,a)
-            an.c[s]  ← 1   ∀ s∈node.S_in
+            an.Q_rob ← imm
+            an.delta[s] ← 0   ∀ s∈node.S_in
         else:                                            # interior — projected ball, shared by both objectives
             for s' ∈ an.S_next:                          # observation step
                 B_Z ← ProjTVball(O(s',·)|Z_in, ρ_Z(s'))
-                w[s']  ← min_{q∈B_Z} Σ_{z∈Z_in} q[z]·an.child[z].V_rob
-                cw[s'] ← min_{q∈B_Z} Σ_{z∈Z_in} q[z]·( an.child[z].c[s'] if s'∈S_in(an.child[z]) else 0 )
+                w[s']   ← min_{q∈B_Z} Σ_{z∈Z_in} q[z]·an.child[z].V_rob
+                w_δ[s'] ← min_{q∈B_Z} Σ_{z∈Z_in} q[z]·( 1 + an.child[z].delta[s']  if s'∈S_in(an.child[z]) else 0 )
             for s ∈ node.S_in:                           # transition step
                 B_T ← ProjTVball(T(s,a,·)|an.S_next, ρ_T(s,a))
-                σ[s]  ← min_{p∈B_T} Σ_{s'∈an.S_next} p[s']·w[s']
-                an.c[s] ← 1 + min_{p∈B_T} Σ_{s'∈an.S_next} p[s']·cw[s']
-            an.Q_rob ← Σ_{s∈node.S_in} b[s]·( R(s,a) + σ[s] )
+                σ[s]        ← min_{p∈B_T} Σ_{s'∈an.S_next} p[s']·w[s']
+                an.delta[s] ← min_{p∈B_T} Σ_{s'∈an.S_next} p[s']·w_δ[s']   # continuation only, no self +1
+            an.Q_rob ← imm + Σ_{s∈node.S_in} b[s]·σ[s]
     a* ← argmax_{a∈expanded} node.child[a].Q_rob
-    node.V_rob ← node.child[a*].Q_rob ;   node.c ← node.child[a*].c    # greedy policy
+    node.V_rob ← node.child[a*].Q_rob ;   node.delta ← node.child[a*].delta    # greedy policy
 ```
 
 ## ROLLOUT — nominal random sim to H-1; feeds Q_nom only
@@ -114,7 +121,7 @@ ROLLOUT(s, d) -> G:
 CERTIFIED_BEST_ACTION(root) -> action or ⊥:
     if not all actions expanded at root: return ⊥
     for each root action a  (an := root.child[a]):
-        ε_a ← R_max·( H - Σ_{s∈S_in(root)} b0(s)·an.c[s] )   # tighter bound (Eq.122, j=0..H-1)
+        ε_a ← R_max·( (H-1) - Σ_{s∈S_in(root)} b0(s)·an.delta[s] )   # Eq. 49 (drops j=0)
         L[a] ← an.Q_rob - ε_a ;   U[a] ← an.Q_rob + ε_a
     a* ← argmax_a L[a]
     return a*  if  L[a*] ≥ max_{a≠a*} U[a]  else ⊥

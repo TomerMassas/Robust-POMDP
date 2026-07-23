@@ -1,14 +1,15 @@
 """
-Certificate helpers — the Theorem-1 leakage bound and the per-root-action bracket
-used for CR-UCT's anytime early stop (CERTIFIED_BEST_ACTION in pseudocode.md).
+Certificate helpers — the Theorem-1 bound and the per-root-action bracket used for
+CR-UCT's anytime early stop (CERTIFIED_BEST_ACTION in pseudocode.md).
 
-Canonical home for the bound  eps = R_max * (H - sum_{s in S_in} b0(s)*c[s])  and
-R_max; the post-hoc experiment (fixed_policy_tree) imports from here so the math
+Canonical home for the bound  eps = R_max·((H-1) - Σ_{s∈S_in} b0(s)·δ[s])  (Eq. 49)
+and R_max; the post-hoc experiment (fixed_policy_tree) imports from here so the math
 lives in one place.
 
-The bracket [Q_rob(a) - eps_a, Q_rob(a) + eps_a] uses the ACTION node's survival
-c (an.c), the root's sampled support, and the TRUE initial belief b0 (unnormalized
-restriction is implicit: states outside S_in(root) contribute 0).
+The bracket [Q_rob(a) - eps_a, Q_rob(a) + eps_a] uses the ACTION node's continuation
+-survival δ (an.delta), the root's sampled support, and the exact initial belief b0.
+There is no j=0 term: the root belief is exact, so its immediate reward carries no
+error (Q_rob's immediate is r_exact) and δ counts only the continuation depths 1..H-1.
 """
 
 from __future__ import annotations
@@ -24,16 +25,16 @@ def r_max(model: TabularPOMDP) -> float:
     return float(max(abs(model.R.min()), abs(model.R.max())))
 
 
-def eps_for_c(c: dict[int, float],
-              b0: np.ndarray,
-              S_in,
-              H: int,
-              R_max: float,
-              ) -> float:
-    """Theorem-1 leakage bound  eps = R_max * (H - sum_{s in S_in} b0[s]*c[s])."""
+def eps_for_delta(delta: dict[int, float],
+                  b0: np.ndarray,
+                  S_in,
+                  H: int,
+                  R_max: float,
+                  ) -> float:
+    """Theorem-1 certificate  eps = R_max·((H-1) - Σ_{s∈S_in} b0[s]·δ[s])  (Eq. 49)."""
     b0 = np.asarray(b0, dtype=np.float64)
-    survived = sum(b0[s] * c[s] for s in S_in)
-    return R_max * (H - survived)
+    survived = sum(b0[s] * delta[s] for s in S_in)
+    return R_max * ((H - 1) - survived)
 
 
 def action_bracket(an: ActionNode,
@@ -42,8 +43,8 @@ def action_bracket(an: ActionNode,
                    H: int,
                    R_max: float,
                    ) -> tuple[float, float, float]:
-    """(L, U, eps) for one root action: [Q_rob - eps, Q_rob + eps] with eps from an.c."""
-    eps = eps_for_c(an.c, b0, S_in_root, H, R_max)
+    """(L, U, eps) for one root action: [Q_rob - eps, Q_rob + eps] with eps from an.delta."""
+    eps = eps_for_delta(an.delta, b0, S_in_root, H, R_max)
     return an.Q_rob - eps, an.Q_rob + eps, eps
 
 

@@ -121,11 +121,11 @@ def test_certified_best_action_unit():
     b0 = np.array([1.0, 0.0, 0.0, 0.0, 0.0])
     an0, an1 = ActionNode(1), ActionNode(2)
     root.children = {0: an0, 1: an1}
-    # c = H = 3 -> eps = R_max*(3 - 1*3) = 0; tight brackets, clear separation.
-    an0.Q_rob, an0.c = 10.0, {0: 3.0}
-    an1.Q_rob, an1.c = 5.0, {0: 3.0}
+    # δ = H-1 = 2 -> eps = R_max*((3-1) - 1*2) = 0; tight brackets, clear separation.
+    an0.Q_rob, an0.delta = 10.0, {0: 2.0}
+    an1.Q_rob, an1.delta = 5.0, {0: 2.0}
     assert certified_best_action(root, b0, 3, 10.0, 2) == 0
     assert certified_best_action(root, b0, 3, 10.0, 3) is None      # not all expanded
-    # c = 2 -> eps = 10*(3-2) = 10; brackets overlap -> not certifiable.
-    an0.c, an1.c = {0: 2.0}, {0: 2.0}
+    # δ = 1 -> eps = 10*((3-1) - 1*1) = 10; brackets overlap -> not certifiable.
+    an0.delta, an1.delta = {0: 1.0}, {0: 1.0}
     assert certified_best_action(root, b0, 3, 10.0, 2) is None

@@ -6,6 +6,199 @@ originSessionId: 60e505b2-035f-4545-ad11-905ae1961031
 ---
 ## Session Log
 
+### 2026-07-21 — Session 23: RUDB variant — pseudo-code derivation + deep certificate-theory investigation (flagged a likely Thm-2 bug)
+
+Moved to the **RUDB variant** (R-MCTS variant 2). Almost entirely design /
+derivation / verification — **no shipped code** (one pseudo-code doc written, and
+it already needs revision per the findings below). Workflow: derive pseudo-code
+together, lock before implementing (same as CR-UCT).
+
+- **RUDB structure vs CR-UCT** (paper Eq. 19-23 / Thm 1/2 / Cor 1/3): apply the
+  robust Bellman *optimality* operator to the certified upper bound → deterministic
+  upper bound on the **optimal** robust value `V*_rect` (Thm 2), converging to it
+  (Cor 3). Four differences: (i) **exact nominal belief filter** over full `S`
+  (Cor 1 ⇒ per-node validity) vs CR-UCT projected-Bayes; (ii) **shared-minimizer
+  upper backup** (value+error at one argmin); (iii) **optimism** exploration
+  `argmax_a U(a)` — no `c_ucb`/`Q_nom`/rollouts (the error IS the optimism);
+  (iv) certifies **optimality** + prunes certified-suboptimal subtrees at every node.
+
+- **Derived the shared-minimizer upper backup**: Eq. 19's objective collapses to a
+  single combined coefficient `g(z) = U_child(z) − R_max`, so the upper is **one**
+  two-step projected LP, `U(a) = r + R_max + Σ_s b(s)·σg(s)`.
+
+- **Bracket is asymmetric**: `L(a)=V̂^π(a)−ε₁(a)` [Thm 1], `U(a)=RUDB(a)` [Thm 2];
+  certify `a*` when `L(a*) ≥ max_{a≠a*} U(a)`. (The paper's *symmetric* `[V̂^π±ε]`
+  sits under Thm 1 — a different object.) Complexity ≈ **1.5× CR-UCT/node** (lower
+  = 2 LP passes, upper = +1 shared-min pass).
+
+- **Wrote `Algorithm/rudb/pseudocode.md`** (first draft, git-tracked, sibling to
+  `ucb/pseudocode.md`). **Needs revision** — its certificate section is the
+  restricted-immediate/asymmetric form, superseded by the findings below.
+
+- **Deep certificate-theory investigation (the heart of the session):**
+  - **Resolved the core confusion** ("how compute the leakage cert per-node during
+    search if Eq. 122 is root-only, non-rectangular?"): two orthogonal things.
+    **(a) Computability** = rectangularity — the global inf decomposes into a
+    per-node backward DP, *exactly* as the non-rectangular robust value (Eq. 3)
+    becomes the rectangular Bellman backup (`robust_q`); so `leakage_c` per-node is
+    as legitimate as `robust_q` per-node. **(b) Per-node validity** = exact beliefs
+    (Cor 1): valid only when `b̂_t = (true b_t)|_{S_in}`. CR-UCT (projected-Bayes)
+    ⇒ root-only; RUDB (exact) ⇒ per-node ⇒ pruning. That's the Thm-1→Cor-1→Thm-2 ladder.
+  - **Backward-nesting correction**: the rectangular Eq. 122 must nest infima
+    **backward** (deepest-first = `leakage_c`), NOT the forward-starred unroll
+    Tomer first wrote — because the shallow adversary's leak choice depends on the
+    downstream survival. ρ=0 masked it (no adversary freedom).
+  - **Full-immediate decision** (Tomer): the immediate reward uses the **exact full
+    belief** at every node → current depth never leaks → **terminals exact (ε=0)**,
+    leakage **continuation-only**, strictly tighter than restricted-immediate.
+  - **`δ` made per-state** (Tomer updated paper (124)-(126)). **Verified
+    numerically: the per-state (124)-(126) = `leakage_c`/`certificate_eps`
+    bit-for-bit at all ρ** (0.70 belief-scalar vs 1.42 per-state — the old scalar
+    form was wrong).
+  - **FLAGGED Eq. 75 (Thm-2 proof error recursion) as undercounting.** Eq. 75 is a
+    **belief-scalar** recursion `ε_t = R_max(1−M_t) + E[ε_{t+1}]` (old-(125) shape).
+    On identical beliefs (ρ=0): 0.70 vs validated per-state 1.42. Analytic reason:
+    the error recursion equals the per-state **survival** form *only if* `M_t=1`
+    (no leakage); under leakage it charges the leaked cohort **once**, not over all
+    remaining depths → dips below the true gap → **not a safe upper bound → breaks
+    `V* ≤ RUDB` (Thm 2)**. **Recommendation: Eq. 75 must be per-state** like the
+    corrected (124)-(126).
+
+- **Standing directive (Tomer, load-bearing):** *no lazy reuse that neglects the
+  theory.* If RUDB's correct certificate is the full-immediate (exact-belief) form,
+  build it even though it means NOT reusing `leakage_c`. Tightness + correctness
+  over convenience.
+
+- **Files this session.** New: `Algorithm/rudb/pseudocode.md` (first draft; cert
+  section to revise). Paper `R_MCTS_AAAI_2027.pdf` updated by Tomer (rectangular
+  Eq. 122 → (123)-(129); (124)-(126) per-state `δ`; Thm-2 proof Eq. 71-105).
+  Ephemeral scratchpad verification scripts (recursion comparisons).
+
+- **Open / next — the RUDB certificate is the live thread:**
+  - **Resolve Eq. 75**: rewrite per-state (consistent with (124)-(126)), OR
+    brute-force the true full-belief `|V*_rob − V̂_RUDB|` gap to confirm the
+    undercount. Blocks the RUDB certificate.
+  - **Pin down the full-immediate certificate recursion** (exact-belief version):
+    open question is whether the full belief recaptures a leaked trajectory's *next*
+    immediate — the true-gap brute-force settles it.
+  - **Then**: finalize `rudb/pseudocode.md`, lock, implement RUDB (M5): exact belief
+    filter + shared-min upper backup + per-state full-immediate certificate +
+    optimism + pruning flag. Reuses core (`robust_q`, `ProjectedTVBall`, tree,
+    sampling); certificate is NEW (not `leakage_c`).
+
+### 2026-07-20 — Session 22: post-hoc ergonomics + per-node sampler scheme + A1 bit-consistency + **Milestone 4 (CR-UCT planner) built**
+
+Big implementation session on the new `Algorithm/` code. Post-hoc experiment got a
+policy selector + a third support scheme (per-node sampler); confirmed the new code
+reproduces the A1 baseline bit-for-bit; then built the **UCB planner (CR-UCT)** end
+to end (pseudo-code → audit → implementation → tests → demo).
+
+- **Post-hoc: policy chosen in config, not both.** Added `Config.policy`
+  ("warning"|"greedy"); `sweep`/`_print_table`/`plot_posthoc` are now data-driven
+  (render whatever policy is in the rows). `_build_policy` returns (policy, V_full):
+  greedy = frozen argmax from `solve_full` (V_full = optimal robust V*), warning =
+  the hand-coded rule (V_full = its own full-support value).
+
+- **A1 sampler-sweep consistency check (validation).** Matched the A1 domain
+  (`risk_fractions=(0.6,0.3,0.1)`, ρ=0.1, N=M=10) and **bridged the horizon
+  convention**: A1 terminates at `depth==H` (H+1 reward layers, V_max=R_max·(H+1)),
+  new code at `depth==H-1` (H layers, V_max=R_max·H) → **A1 H=3 ≡ new H=4**. New
+  `solve_full` V_full = `12.594956217798833` = A1's **to the bit** (abs diff 0.0).
+
+- **Per-node sampler = third support scheme (`scheme="sampler"`).** POMCP-style
+  focusing: each node draws its support from its belief-predictive.
+  - `support_picker.sample_pick(probs,K,rng)` — belief-weighted draw w/ replacement,
+    dedup, sort (identical to A1's `_sample_support`; same `rng.choice` call/order →
+    same seed reproduces A1's supports).
+  - `sampled_policy_tree.eval_sampled_policy` + `avg_support_fraction` — per-node
+    sampled tree on the NEW core; reuses `backup`/`projected_bayes`/`restrict`;
+    `S_next=⋃_z child.S_in`; new terminal convention.
+  - Config `K_grid`/`n_seeds`/`seed`; `run.py` dispatches on `scheme` →
+    `sweep_sampler`/`plot_sampler`/`run_sampler`, `sampler_data_V{n}.csv` +
+    `sampler_V{n}.png`. `test_sampler.py` (validity, K-convergence, props, determinism).
+  - Verified reproduces A1: V_full bit-match, `avg_frac` 0.10→0.712 (K=2048≈A1's ~0.7),
+    ε floors above 0, all valid.
+
+- **Architecture fix (Tomer caught it): `support_picker.py` moved `core/` →
+  `experiments/post_hoc_guarantees/`.** The pickers choose which support the
+  *experiment* projects onto — experiment tooling, not shared core math (the planner
+  grows support by per-sim sampling, never these pickers). Two importers, both updated.
+
+- **Plot polish.** Policy in every plot title; non-sampler figure widened to `(9,5.5)`
+  to match the sampler (long title was clipping at single-panel 6" width).
+
+- **Conceptual clarifications (discussion, no code).**
+  - Greedy → V_full = the **optimal** robust value (solve_full is max-over-actions);
+    warning → that fixed policy's own value. Same certificate `|V_full^π−V_proj^π|≤ε`;
+    only what V_full *means* differs.
+  - "Theorem-1 also brackets V*" is a consequence of feeding it the **optimal policy**
+    (whose V_full = V*), not a property of the bound — it brackets whatever policy's
+    value you hand it (warning's collapses onto 4.85, not V*). So it's a *post-hoc
+    validation* (needs oracle π* from the full solve), NOT an online optimal-value
+    bound — that is RUDB / Thm-2's job.
+
+- **Milestone 4 — CR-UCT planner (UCB variant) BUILT.**
+  - **Pseudo-code persisted**: `Algorithm/ucb/pseudocode.md` (from Tomer's
+    `method.docx` screenshots). Git-tracked next to the code (not gitignored
+    `docs/discussion/`), so it syncs cross-machine.
+  - **Key finding**: BACKUP (frontier/terminal/interior + greedy), the interior
+    two-step LP (=`robust_q`+`leakage_c`), the beliefs, and the tree ops are ALL
+    already built + tested in the post-hoc core → M4 reuses them; only the search
+    driver + certificate are new.
+  - **/audit-plan** caught: sorted-support alignment (belief array must align with
+    `backup`'s `sorted(node.S_in)` — `restrict` on a set is unsorted → latent bug);
+    `Q_rob ↛ q_root` (support floors → validity test must use the *tree-policy's*
+    full-support value, not `q_root`); marginal early-stop; `rng.choice` sum-to-1
+    drift; UCB expand-guard. 6 auto-fixes + 3 decisions, all applied.
+  - **Decisions**: `c_ucb=√2` in config (tunable); certificate canonical in
+    `ucb/certificate.py` (`fixed_policy_tree` imports it); `abort` faithful AND a
+    **generic optional** param (None when a domain has none; special-cased only in
+    BACKUP) — not tailored to the current action set (later toys may lack abort).
+  - **Reward/UCB normalization** (Tomer's catch): `c=√2` assumes the averaged return
+    ∈[0,1], but returns span ±V_max≈±30 → exploration was negligible. Fix: normalize
+    the **return inside SELECT_ACTION** `Q_norm=(Q+V_max)/(2·V_max)`, V_max=R_max·H;
+    NOT rescale the domain (returns would still be [0,H] and it would rewrite every
+    reported value). Certificate/`Q_rob`/reported values stay in real units. Reasoned:
+    whether or not you rescale rewards, UCB averages the *return*, so you must
+    normalize by the return range regardless — rescaling the domain is neither
+    necessary nor sufficient. `pseudocode.md` SELECT_ACTION updated to match.
+  - **Files**: `ucb/certificate.py` (`r_max`, `eps_for_c`, `action_bracket`,
+    `certified_best_action`), `ucb/planner.py` (`plan()` + closures), config knobs
+    (`ucb_mode`, `budget`, `c_ucb`, `use_rollouts`, `early_stop`), `test_planner.py`
+    (6 tests incl. rigorous bracket-validity via an extracted tree-policy),
+    `experiments/planner_demo/run.py` (config-driven single planning step, print-only).
+  - **Verified**: 6/6 planner tests. Demo (robust mode): normalization → balanced
+    exploration (neglected-action ε 20→~4.5, every `Q_rob` near its ground-truth
+    `q_root*`, every bracket contains it), chose the correct best action (`proceed`).
+    Early-stop doesn't fire at budget≤1000 (proceed-vs-inspect gap ~ ε; marginal
+    separation) — certifies with more budget or smaller ρ.
+
+- **Deliberate deviations from A1 (carried in the new code).** `S_next=⋃_z child.S_in`
+  (vs A1 `node.S_in`); scalar-`c` tighter bound (sup-of-sum vs A1's per-depth
+  sum-of-sups); abort-terminal; H reward depths 0..H-1 (**new H=4 ≡ A1 H=3**); UCB
+  return-normalization.
+
+- **Files this session (all uncommitted).**
+  - New: `Algorithm/ucb/{pseudocode.md, certificate.py, planner.py}`,
+    `.../post_hoc_guarantees/sampled_policy_tree.py`,
+    `.../planner_demo/{__init__,run}.py`, `Algorithm/tests/{test_sampler,test_planner}.py`.
+  - Moved: `Algorithm/core/support_picker.py` →
+    `.../post_hoc_guarantees/support_picker.py` (+ `sample_pick`).
+  - Modified: `.../config.py` (policy + sampler + planner knobs),
+    `.../post_hoc_guarantees/run.py` (policy choice, sampler dispatch, plot titles/dims),
+    `.../post_hoc_guarantees/fixed_policy_tree.py` (imports certificate).
+  - Config defaults toggled during play (policy/scheme/H/budget) — experiment settings,
+    not load-bearing.
+
+- **Open / next.**
+  - **RUDB variant** (next milestone): exact nominal-belief filter + shared-minimizer
+    RUDB backup (Eq. 19/73-75) + optimality bracket (Thm 2), own `rudb/pseudocode.md`.
+    Internalize Thm-2 + Lemma-3 proofs before drafting.
+  - Deferred: dirty-flag efficiency pass; online episode loop (multi-step Bayes update
+    + world/planner RNG split); optimality experiment (planner vs `full_solver`).
+  - Planner test runtime ~220s (the budget=3000 recovery test builds a broad tree now
+    that exploration works) — trim budgets if a faster suite is wanted.
+
 ### 2026-07-19 — Session 21: New AAAI paper (R-MCTS) read + UCB-variant planner pseudo-code (design only, no code)
 
 First session after a ~4-week gap. Entirely design/pseudo-code — **no code

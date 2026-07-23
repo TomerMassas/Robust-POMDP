@@ -43,11 +43,11 @@ class Config:
     rho_Z: float = 0.1
 
     # --- post-hoc experiment: which fixed policy to certify ---
-    policy: str = "warning"   # "warning" | "greedy"
+    policy: str = "greedy"   # "warning" | "greedy"
 
     # --- support sweep (fraction schemes) ---
     fractions: tuple[float, ...] = (0.2, 0.4, 0.6, 0.8, 1.0)
-    scheme: str = "sampler"                         # "uniform" | "exp_decay" | "sampler"
+    scheme: str = "uniform"                         # "uniform" | "exp_decay" | "sampler"
     decay: float = 0.5                                # exp_decay only
     n_bins: int = 10                                  # exp_decay only
 

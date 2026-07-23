@@ -2,7 +2,7 @@
 Test 5 (headline) — post-hoc guarantee validity, on the synthetic domain, on the
 NEW core: |V_full^pi - V_proj^pi| <= eps for a fixed policy pi.
 
-This is the first place S_next + scalar-c + tighter-bound + our belief are checked
+This is the first place S_next + continuation-δ + tighter-bound + our belief are checked
 together against real ground truth.
 
 Checks:
@@ -66,6 +66,19 @@ def test_full_value_rho0_matches_nominal():
     root = eval_fixed_policy(model, unc, policy, b0, H, list(range(N)), list(range(M)), ABORT, {})
     expected = _nominal_value(model, policy, b0, H, ABORT)
     assert abs(root.V_rob - expected) < 1e-9, (root.V_rob, expected)
+
+
+def test_h1_exact_root_reward():
+    """H=1: root is terminal -> V_proj is the exact immediate reward for ANY projected S_in."""
+    N, M, H = 5, 3, 1
+    model, b0 = make_synthetic_pomdp(N, M), make_initial_belief(N)
+    policy = _warning_policy(M)
+    unc = uniform_uncertainty(N, model.n_actions, 0.1, 0.1)
+    a = policy(())
+    expected = float(np.asarray(b0) @ model.R[:, a])
+    for S_in in ([0], [0, 2], [1, 3, 4], list(range(N))):
+        root = eval_fixed_policy(model, unc, policy, b0, H, S_in, [0, 1], ABORT, {})
+        assert abs(root.V_rob - expected) < 1e-12, (S_in, root.V_rob, expected)
 
 
 def test_post_hoc_validity_sweep():

@@ -1,12 +1,12 @@
 """
-Test 4 — survival scalar `c` (leakage.py) and the backup that assembles it.
+Test 4 — continuation-survival δ (leakage.py) and the backup that assembles it.
 
 Independent checks:
-  A. chain forward-enumeration at rho=0 (c_root == Σ_j nominal in-support survival).
+  A. chain forward-enumeration at rho=0 (δ_root == worst-case in-support continuation).
   B. chain at rho>0: worst-case shrinks each in-support prob by rho/2 (hand value).
-  C. survival_c interior step at rho=0 vs direct.
-  D. full support -> c_root = H (no leakage possible).
-  E. base cases: abort action -> c = H-depth; frontier node -> c = 1.
+  C. leakage_delta interior step at rho=0 vs direct.
+  D. full support -> δ_root = H-1 (no leakage; own depth is NOT counted).
+  E. base cases: abort action -> δ = H-1-depth; frontier node -> δ = 0.
   F. Lemma 2: projected-ball leakage == full-ball leakage (vs src TVBallLinearMinLP).
 
 Run:  python -m pytest Algorithm/tests/test_leakage.py -q
@@ -20,7 +20,7 @@ from Algorithm.core.projected_tv_ball import ProjectedTVBall
 from Algorithm.core.tree import HistoryNode, NodeIdCounter
 from Algorithm.core.uncertainty import uniform_uncertainty
 from Algorithm.ucb.backup import backup
-from Algorithm.ucb.leakage import leakage_c
+from Algorithm.ucb.leakage import leakage_delta
 
 try:
     from robust_pomdp.bounds.tv_ball_lp import TVBallLinearMinLP
@@ -54,31 +54,32 @@ def _build_and_backup_chain(model, rho, H=3):
     return root
 
 
-def test_chain_c_rho0_forward_enum():
+def test_chain_delta_rho0_forward_enum():
     m = _chain_model()
     root = _build_and_backup_chain(m, rho=0.0)
-    # c_root = 1 + T01·O1·(1 + T12·O2)   with T01=0.5,O1=O[1,0]=0.5,T12=0.6,O2=O[2,0]=0.4
-    expected = 1 + 0.5 * 0.5 * (1 + 0.6 * 0.4)
-    assert abs(root.c[0] - expected) < 1e-9, (root.c[0], expected)
+    # δ_root = T01·O1·(1 + T12·O2·(1 + 0));  T01=0.5, O1=O[1,0]=0.5, T12=0.6, O2=O[2,0]=0.4
+    expected = 0.5 * 0.5 * (1 + 0.6 * 0.4)
+    assert abs(root.delta[0] - expected) < 1e-9, (root.delta[0], expected)
 
 
-def test_chain_c_rho_positive_worstcase():
+def test_chain_delta_rho_positive_worstcase():
     m = _chain_model()
     root = _build_and_backup_chain(m, rho=0.2)          # each in-support prob shrinks by 0.1
     a01, o1, a12, o2 = 0.5 - 0.1, 0.5 - 0.1, 0.6 - 0.1, 0.4 - 0.1
-    expected = 1 + a01 * o1 * (1 + a12 * o2)
-    assert abs(root.c[0] - expected) < 1e-6, (root.c[0], expected)
+    expected = a01 * o1 * (1 + a12 * o2)
+    assert abs(root.delta[0] - expected) < 1e-6, (root.delta[0], expected)
 
 
-def test_leakage_c_rho0_direct():
+def test_leakage_delta_rho0_direct():
     m = _chain_model()
     unc = uniform_uncertainty(m.n_states, m.n_actions, 0.0, 0.0)
-    c = leakage_c(m, unc, a=0, S_in=[0], Z_in=[0], S_next=[1], child_c={0: {1: 1.7}}, lp_cache={})
-    # cw[1] = O[1,0]·1.7 = 0.5·1.7 = 0.85 ; c[0] = 1 + T[0,0,1]·0.85 = 1 + 0.5·0.85 = 1.425
-    assert abs(c[0] - 1.425) < 1e-9, c
+    delta = leakage_delta(m, unc, a=0, S_in=[0], Z_in=[0], S_next=[1],
+                          child_delta={0: {1: 0.7}}, lp_cache={})
+    # w[1] = O[1,0]·(1 + 0.7) = 0.5·1.7 = 0.85 ; δ[0] = T[0,0,1]·0.85 = 0.5·0.85 = 0.425
+    assert abs(delta[0] - 0.425) < 1e-9, delta
 
 
-def test_full_support_c_equals_H():
+def test_full_support_delta_equals_Hminus1():
     T = np.zeros((2, 1, 2)); T[0, 0, :] = [0.6, 0.4]; T[1, 0, :] = [0.3, 0.7]
     O = np.array([[0.8, 0.2], [0.1, 0.9]]); R = np.zeros((2, 1))
     m = TabularPOMDP.from_matrices(T, O, R)
@@ -93,7 +94,7 @@ def test_full_support_c_equals_H():
     lp: dict = {}
     for node in (c0, c1, root):
         backup(node, np.array([0.5, 0.5]), m, unc, H, abort_action=None, lp_cache=lp)
-    assert abs(root.c[0] - 2.0) < 1e-9 and abs(root.c[1] - 2.0) < 1e-9, root.c
+    assert abs(root.delta[0] - 1.0) < 1e-9 and abs(root.delta[1] - 1.0) < 1e-9, root.delta
 
 
 def test_base_case_abort():
@@ -103,7 +104,7 @@ def test_base_case_abort():
     node = HistoryNode(ctr.next_id(), 0); node.S_in = {0, 1}
     node.expand_action(0, ctr)                          # action 0 acts as the terminal "abort"
     backup(node, np.array([0.5, 0.5]), m, unc, H=3, abort_action=0, lp_cache={})
-    assert abs(node.c[0] - 3.0) < 1e-12 and abs(node.c[1] - 3.0) < 1e-12, node.c  # H - depth = 3
+    assert abs(node.delta[0] - 2.0) < 1e-12 and abs(node.delta[1] - 2.0) < 1e-12, node.delta  # H-1-depth = 2
 
 
 def test_base_case_frontier():
@@ -112,7 +113,7 @@ def test_base_case_frontier():
     ctr = NodeIdCounter()
     node = HistoryNode(ctr.next_id(), 1); node.S_in = {0, 1}   # no expanded actions -> frontier
     backup(node, np.array([0.5, 0.5]), m, unc, H=3, abort_action=None, lp_cache={})
-    assert abs(node.c[0] - 1.0) < 1e-12 and abs(node.c[1] - 1.0) < 1e-12, node.c
+    assert abs(node.delta[0] - 0.0) < 1e-12 and abs(node.delta[1] - 0.0) < 1e-12, node.delta
 
 
 @pytest.mark.skipif(not _HAVE_SRC, reason="src robust_pomdp not importable")
